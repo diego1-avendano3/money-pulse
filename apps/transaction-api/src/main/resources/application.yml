@@ -1,0 +1,29 @@
+spring:
+  application:
+    name: transaction-api
+  reactor:
+    # Propagate MDC (traceId/spanId) across reactive operators. Without this the
+    # correlation fields are missing from logs emitted off the request thread.
+    context-propagation: auto
+
+server:
+  port: 8080
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, info
+  endpoint:
+    health:
+      show-details: always      # dev only; Phase 4 locks this down
+      probes:
+        enabled: true           # liveness/readiness groups
+  tracing:
+    sampling:
+      probability: 1.0          # sample every request in the lab; Phase 5 tunes it
+
+logging:
+  pattern:
+    # Kept explicit on purpose (CLAUDE.md: never remove the traceId/spanId pattern).
+    correlation: "[${spring.application.name:},%X{traceId:-},%X{spanId:-}] "
