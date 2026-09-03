@@ -13,7 +13,7 @@ Kafka, get categorized, and trigger real-time spend alerts. Built to demonstrate
 (scalability, resilience, security, observability, concurrency) on a full-stack + cloud-native stack.
 
 ## Stack
-- Java 21, Spring Boot 3.3+, Gradle (Kotlin DSL)
+- Java 21, Spring Boot 4.1+, Gradle (Kotlin DSL)
 - transaction-api: Spring WebFlux + R2DBC
 - transaction-processor: Spring Kafka + R2DBC
 - web: Vite + React 18 + TypeScript (PWA)

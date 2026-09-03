@@ -95,7 +95,8 @@ Reglas que el código debe respetar. Derivadas de `CLAUDE.md` y `PROJECT.md` §6
   **No se elimina ese patrón.**
 
 ### 3.4 Plataforma y lenguaje
-- Java 21, Spring Boot 3.3+, Gradle con Kotlin DSL.
+- Java 21, Spring Boot **4.1+**, Gradle con Kotlin DSL. (La línea 3.x quedó EOL
+  antes de arrancar el lab; se fija `4.1.1` en `gradle/libs.versions.toml`.)
 - React 18 + TypeScript + Vite para `web`.
 - Kafka en modo **KRaft** (sin ZooKeeper).
 - PostgreSQL como *transaction store*.

@@ -61,7 +61,7 @@ Un único `traceId` (W3C `traceparent`) viaja por HTTP → header Kafka → logs
 
 ## 6. Stack y decisiones (defaults)
 
-- Java 21, Spring Boot 3.3+, Gradle (Kotlin DSL).
+- Java 21, Spring Boot 4.1+ (la línea 3.x quedó EOL antes de arrancar el lab), Gradle (Kotlin DSL).
 - Transaction API: Spring WebFlux + R2DBC (reactivo E2E).
 - Transaction Processor: Spring Kafka + R2DBC.
 - Web: Vite + React 18 + TypeScript (PWA).
