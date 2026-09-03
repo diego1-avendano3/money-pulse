@@ -5,6 +5,15 @@ spring:
     # Propagate MDC (traceId/spanId) across reactive operators. Without this the
     # correlation fields are missing from logs emitted off the request thread.
     context-propagation: auto
+  jackson:
+    # Wire format for TransactionEvent is pinned here on purpose — the contract
+    # must not depend on implicit Jackson defaults (spec §4.2).
+    write-dates-as-timestamps: false          # Instant -> "2026-09-03T14:00:00Z", not epoch
+    default-property-inclusion: non_null
+    generator:
+      write-bigdecimal-as-plain: true         # no scientific notation for decimals
+    deserialization:
+      use-big-decimal-for-floats: true        # safety net for any numeric decimal field
 
 server:
   port: 8080

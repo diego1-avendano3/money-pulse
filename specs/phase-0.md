@@ -125,19 +125,25 @@ Campos mínimos del mensaje publicado en `transactions.received`:
 
 | Campo | Tipo | Origen |
 |---|---|---|
-| `id` | UUID (string) | generado por `transaction-api` al recibir el `POST` |
-| `accountId` | string | del cuerpo del `POST` |
-| `amount` | número decimal (`BigDecimal`), **con signo**: negativo = egreso | del cuerpo del `POST` |
-| `currency` | string ISO-4217 (p. ej. `COP`, `USD`) | del cuerpo del `POST` |
-| `merchant` | string | del cuerpo del `POST` |
-| `occurredAt` | timestamp ISO-8601 (`Instant`) | del cuerpo del `POST` (cuándo ocurrió en el banco) |
-| `receivedAt` | timestamp ISO-8601 (`Instant`) | fijado por `transaction-api` al recibir |
+| `id` | `UUID` ↔ JSON string | generado por `transaction-api` al recibir el `POST` |
+| `accountId` | `String` ↔ JSON string | del cuerpo del `POST` |
+| `amount` | `BigDecimal` ↔ **JSON string con decimal exacto** (`WRITE_BIGDECIMAL_AS_PLAIN`), **con signo**: negativo = egreso | del cuerpo del `POST` |
+| `currency` | `String` ISO-4217 (p. ej. `COP`, `USD`) ↔ JSON string | del cuerpo del `POST` |
+| `merchant` | `String` ↔ JSON string | del cuerpo del `POST` |
+| `occurredAt` | `Instant` ↔ JSON string ISO-8601 / RFC-3339 UTC (`…Z`) | del cuerpo del `POST` (cuándo ocurrió en el banco) |
+| `receivedAt` | `Instant` ↔ JSON string ISO-8601 / RFC-3339 UTC (`…Z`) | fijado por `transaction-api` al recibir |
 
 - El `traceparent` **no** viaja en el cuerpo; viaja como header del registro Kafka
   (lo inyecta la instrumentación de observación).
+- **`amount` viaja como string, no como número JSON.** `JSON.parse` en el navegador
+  lo leería como float64 y perdería precisión/escala; un string es exacto y
+  language-agnostic. El dinero no viaja como float.
 - Amount con signo (un solo campo) en lugar de `amount` + `direction`: es lo
   mínimo para el skeleton. El modelo de dominio (dirección explícita, minor units,
   cuenta como agregado) se define en Fase 1.
+- `TransactionEvent` es un `record` inmutable con constructor compacto que exige
+  los 7 campos (`Objects.requireNonNull`): un campo nulo es dato corrupto y falla
+  temprano. Se **duplica** en cada servicio (§4.7), no se comparte.
 
 ### 4.3 CQRS-lite: quién escribe la tabla
 - `transaction-api` **escribe a Kafka y lee de la tabla `transactions`**. Nunca
