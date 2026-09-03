@@ -241,9 +241,11 @@ En Fase 0, `fetch` nativo encapsulado en un custom hook (`useTransactions`). Sin
 TanStack Query ni SWR. La librería de data-fetching y su patrón idiomático se
 introducen y se enseñan en Fase 1 (profundidad de React).
 
-### 4.9 docker-compose es el único entorno de Fase 0
-Sin perfiles de Spring por entorno más allá de `default` + `docker`. Sin overrides
-de `compose`. Kubernetes/Helm entran en Fase 7.
+### 4.9 Docker Compose es el único entorno de Fase 0
+El archivo es `compose.yaml` (nombre canónico actual) en la raíz. Sin perfiles de
+Spring por entorno más allá de `default` + `docker`. Sin overrides de `compose`.
+Kubernetes/Helm entran en Fase 7. Incluye un servicio `kafka-ui` marcado como
+tooling de dev (no lo requiere el skeleton).
 
 ---
 
@@ -255,8 +257,9 @@ Atómicas y ordenadas por dependencia. Cada una ≈ un commit (conventional).
    `apps/transaction-processor`, `apps/web`, `docs/architecture`),
    `settings.gradle.kts`, build raíz, `.gitignore`, `.editorconfig`, versión de
    toolchain Java 21.
-2. **`build: local infra via docker-compose`** — servicios `kafka` (KRaft) y
-   `postgres` con healthchecks, red y volúmenes. Sin servicios de app todavía.
+2. **`build: local infra via docker-compose`** — `compose.yaml` con `kafka`
+   (KRaft) y `postgres`, healthchecks, red y volúmenes nombrados. Más `kafka-ui`
+   como tooling de dev (comentado como opcional). Sin servicios de app todavía.
 3. **`feat(api): scaffold WebFlux service`** — `transaction-api` arranca, expone
    `/actuator/health`, configura patrón de log con `traceId`/`spanId`, tracing +
    bridge OTel. Aún sin endpoints de negocio.
