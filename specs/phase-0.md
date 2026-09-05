@@ -73,8 +73,13 @@ Reglas que el código debe respetar. Derivadas de `CLAUDE.md` y `PROJECT.md` §6
 ### 3.1 Path de la API — reactivo estricto
 - `transaction-api` es Spring WebFlux. **Cero llamadas bloqueantes** en los
   handlers: sin `.block()`, sin `.toFuture().get()`, sin JDBC. Acceso a datos por
-  **R2DBC**; publicación a Kafka por API reactiva (`ReactiveKafkaProducerTemplate`
-  o `KafkaTemplate` con `observation-enabled` consumido de forma no bloqueante).
+  **R2DBC**. Publicación a Kafka por el `KafkaTemplate` auto-configurado con
+  `observation-enabled: true`, invocado como
+  `Mono.fromFuture(() -> template.send(...)).subscribeOn(Schedulers.boundedElastic())`
+  — el handler nunca ejecuta `.block()`. *(`ReactiveKafkaProducerTemplate` no es
+  una opción: se eliminó en Spring for Apache Kafka 4.x, y `reactor-kafka` —de
+  quien dependía— quedó fuera del BOM de Spring Boot 4 y en mantenimiento; no se
+  monta el skeleton sobre una librería sin soporte activo.)*
 
 ### 3.2 Path del processor — R2DBC como driver, bloqueo permitido en Fase 0
 - `transaction-processor` usa **R2DBC** como driver de persistencia (coherencia de
@@ -208,20 +213,27 @@ void onMessage(TransactionEvent event) {
   Hay que dimensionar a mano `concurrency` y el pool R2DBC. Inconsistente con la
   aspiración "reactivo E2E" del proyecto.
 
-**Opción B — `ReactiveKafkaConsumerTemplate` (reactor-kafka)**
+**Opción B — `ReactiveKafkaConsumerTemplate` (reactor-kafka)** — ⚠️ **ya no
+disponible**: Spring for Apache Kafka 4.x eliminó `ReactiveKafkaConsumerTemplate`
+(y su par `ReactiveKafkaProducerTemplate`, ver §3.1). Se mantiene la descripción
+original por valor histórico de la comparación:
 ```java
 consumerTemplate.receive()
     .flatMap(rec -> repository.save(toRow(rec.value()))
         .then(Mono.fromRunnable(() -> rec.receiverOffset().acknowledge())), CONCURRENCY)
     .subscribe();
 ```
-- **A favor:** no-bloqueo real de extremo a extremo; back-pressure nativo de
-  Reactor; concurrencia explícita con `flatMap(n)`; coherente con el objetivo de
-  aprendizaje de concurrencia reactiva.
+- **A favor (cuando existía):** no-bloqueo real de extremo a extremo; back-pressure
+  nativo de Reactor; concurrencia explícita con `flatMap(n)`.
 - **En contra:** se pierde casi todo el andamiaje del listener container (error
   handling, retry/backoff, DLQ, métricas) y hay que reconstruirlo sobre Reactor.
-  reactor-kafka es más artesanal y con menos ejemplos. La propagación del contexto
-  de observación exige cuidado manual.
+  Hoy exigiría además depender directamente de `reactor-kafka` (fuera del BOM de
+  Spring Boot 4, en mantenimiento) usando su `KafkaReceiver` crudo — un nivel
+  más de código artesanal sin soporte de Boot. La propagación del contexto de
+  observación exige cuidado manual.
+- **Esto confirma, en retrospectiva, que la Opción A fue la elección correcta**:
+  no solo por foco de fase, sino porque la alternativa reactiva ya no es un
+  camino de primera clase en el stack.
 
 **Punto intermedio (descartado):** `@KafkaListener` con `Acknowledgment` manual y
 suscripción del `Mono` en un scheduler acotado — no elimina el bloqueo del hilo de
@@ -242,6 +254,18 @@ En Fase 0 el `record` del evento (`TransactionEvent`) se **duplica** en
 compartido para no introducir acoplamiento de build ni versionado de contrato
 antes de tiempo. Con la llegada de Avro + schema registry en Fase 2, el contrato
 pasa a ser el schema y esta duplicación desaparece.
+
+**Consecuencia en la serialización (tarea 5):** el value del registro Kafka es
+un **`String`** (`StringSerializer`/`StringDeserializer`), con el `TransactionEvent`
+serializado a JSON con el mapper de Jackson 3 que gestiona Boot — no
+`JsonSerializer<TransactionEvent>` de Spring Kafka. Dos razones: (1) el
+`JsonSerializer` de `spring-kafka` sigue en Jackson 2 mientras Boot 4 usa
+Jackson 3 para el resto de la app — mezclar ambos añade fricción sin beneficio;
+(2) `JsonSerializer` añade por defecto un header `__TypeId__` con el nombre de
+clase del productor, que con el record duplicado en paquetes distintos exigiría
+configurar `spring.json.type.mapping`/`trusted.packages` en el consumer — más
+acoplamiento del que esta decisión busca evitar. Con `String`, el topic lleva
+JSON de texto plano: el contrato es literalmente el cable, no una clase Java.
 
 ### 4.8 Data fetching en la web
 En Fase 0, `fetch` nativo encapsulado en un custom hook (`useTransactions`). Sin

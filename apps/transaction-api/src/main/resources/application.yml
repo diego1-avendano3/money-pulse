@@ -14,6 +14,18 @@ spring:
       write-bigdecimal-as-plain: true         # no scientific notation for decimals
     deserialization:
       use-big-decimal-for-floats: true        # safety net for any numeric decimal field
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:29092}   # compose EXTERNAL listener; overridden in task 10
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all
+      properties:
+        max.block.ms: 5000        # bounds the worst case if Kafka is unreachable (spec §3.1)
+    template:
+      # Wraps each send() in an Observation and injects the W3C traceparent
+      # header into the Kafka record — this is how the traceId crosses HTTP -> Kafka.
+      observation-enabled: true
 
 server:
   port: 8080
