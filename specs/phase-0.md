@@ -68,7 +68,7 @@ configuración o abstracciones cuyo único propósito sea una fase posterior.
 
 Reglas que el código debe respetar. Derivadas de `CLAUDE.md` y `PROJECT.md` §6.
 
-> **"Reactivo E2E" en este spec** = no-bloqueo en el *path de la API* (WebFlux + R2DBC, sin `.block()` en los handlers); el `transaction-processor` puede bloquear el hilo del listener en la persistencia en Fase 0 (ver §3.2 y §4.6). No significa "todo el sistema".
+> **"Reactivo E2E" en este spec** = no-bloqueo en el *path de la API* (WebFlux + R2DBC, sin `.block()` en los handlers). El `transaction-processor` es **intencionalmente no reactivo en su modelo de ejecución**: Spring MVC (Servlet/Tomcat) — no WebFlux — solo para exponer `/actuator/health` (no tiene ni tendrá endpoints reactivos propios en Fase 0), y `@KafkaListener` bloqueante en la persistencia (ver §3.2 y §4.6). R2DBC es su driver de persistencia, no una promesa de no-bloqueo: se consume con `.block()`. Esto es explícito, no un descuido — WebFlux en el processor sería disfraz reactivo sin comportamiento reactivo. "Reactivo E2E" no significa "todo el sistema".
 
 ### 3.1 Path de la API — reactivo estricto
 - `transaction-api` es Spring WebFlux. **Cero llamadas bloqueantes** en los
@@ -81,9 +81,14 @@ Reglas que el código debe respetar. Derivadas de `CLAUDE.md` y `PROJECT.md` §6
   quien dependía— quedó fuera del BOM de Spring Boot 4 y en mantenimiento; no se
   monta el skeleton sobre una librería sin soporte activo.)*
 
-### 3.2 Path del processor — R2DBC como driver, bloqueo permitido en Fase 0
-- `transaction-processor` usa **R2DBC** como driver de persistencia (coherencia de
-  stack, migración futura a no-bloqueo sin cambiar de driver).
+### 3.2 Path del processor — Servlet + R2DBC como driver, bloqueo permitido en Fase 0
+- `transaction-processor` usa **Spring MVC (Servlet/Tomcat)**, no WebFlux, para
+  exponer `/actuator/health` — es el único uso de HTTP en este servicio y no hay
+  ninguna ruta reactiva que justifique Netty/WebFlux. Coherente con que el resto
+  del servicio ya es bloqueante por decisión (ver abajo).
+- Usa **R2DBC** como driver de persistencia (coherencia de stack, migración futura
+  a no-bloqueo sin cambiar de driver) — pero R2DBC aquí es *solo el driver*, no una
+  garantía de no-bloqueo: se consume con `.block()`.
 - En Fase 0 el consumo es `@KafkaListener` (listener container de Spring Kafka) y
   **se permite bloquear el hilo del listener en la persistencia**
   (`repository.save(...).block()`). El "reactivo de extremo a extremo" aplica al
@@ -149,6 +154,18 @@ Campos mínimos del mensaje publicado en `transactions.received`:
 - `TransactionEvent` es un `record` inmutable con constructor compacto que exige
   los 7 campos (`Objects.requireNonNull`): un campo nulo es dato corrupto y falla
   temprano. Se **duplica** en cada servicio (§4.7), no se comparte.
+
+**Deuda conocida — precisión de `receivedAt` (detectada en la tarea 5, sin resolver):**
+en el mensaje real observado en `kafka-ui`, `receivedAt` salió con **nanosegundos**
+(`"2026-09-05T12:35:38.171313200Z"`, 9 dígitos), no con milisegundos como en los
+ejemplos y tests de esta sección. Es consecuencia de `Clock.systemUTC().instant()`
+(resolución real del reloj de la JVM) serializado tal cual por Jackson 3 — no es un
+bug, RFC-3339 permite cualquier número de dígitos fraccionarios, pero es una
+asimetría real del cable frente a los ejemplos de este documento (que usan
+`Instant.parse(...)` con milisegundos ya fijados). No se corrige en Fase 0. **Revisar
+en Fase 1**: decidir si se trunca `receivedAt`/`occurredAt` a milisegundos (más
+consistente entre lenguajes/consumidores) o si se acepta precisión variable como
+parte del contrato.
 
 ### 4.3 CQRS-lite: quién escribe la tabla
 - `transaction-api` **escribe a Kafka y lee de la tabla `transactions`**. Nunca

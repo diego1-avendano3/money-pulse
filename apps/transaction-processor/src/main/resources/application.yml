@@ -1,0 +1,37 @@
+spring:
+  application:
+    name: transaction-processor
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:29092}   # compose EXTERNAL listener; overridden in task 10
+    consumer:
+      group-id: transaction-processor
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      auto-offset-reset: earliest      # dev: don't miss messages produced before this started
+    listener:
+      # Extracts the traceparent header from the Kafka record, opens a span and
+      # pushes it into the MDC -- the consumer-side counterpart of task 5's
+      # producer template observation-enabled.
+      observation-enabled: true
+
+server:
+  port: 8082   # 8080 = transaction-api, 8081 = kafka-ui
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, info
+  endpoint:
+    health:
+      show-details: always      # dev only; Phase 4 locks this down
+      probes:
+        enabled: true
+  tracing:
+    sampling:
+      probability: 1.0          # sample every request in the lab; Phase 5 tunes it
+
+logging:
+  pattern:
+    # Kept explicit on purpose (CLAUDE.md: never remove the traceId/spanId pattern).
+    correlation: "[${spring.application.name:},%X{traceId:-},%X{spanId:-}] "

@@ -14,8 +14,8 @@ Kafka, get categorized, and trigger real-time spend alerts. Built to demonstrate
 
 ## Stack
 - Java 21, Spring Boot 4.1+, Gradle (Kotlin DSL)
-- transaction-api: Spring WebFlux + R2DBC
-- transaction-processor: Spring Kafka + R2DBC
+- transaction-api: Spring WebFlux + R2DBC (fully reactive, no blocking calls)
+- transaction-processor: Spring MVC (Servlet, actuator only) + blocking `@KafkaListener` + R2DBC as persistence driver only (`.block()` allowed here — intentional, see spec §3.2/§4.6)
 - web: Vite + React 18 + TypeScript (PWA)
 - Kafka (KRaft), PostgreSQL, Docker Compose `compose.yaml` (local); AWS EKS later
 - Tracing: Micrometer Tracing + OpenTelemetry bridge (enabled from commit 1)
@@ -37,7 +37,7 @@ docs/                        PROJECT.md, phase specs, architecture (C4)
 - Trace a request across services: `docker compose logs transaction-api transaction-processor | grep <traceId>`
 
 ## Conventions
-- Reactive end-to-end on the API path; no blocking calls in WebFlux handlers.
+- Reactive end-to-end applies to the **API path only** (`transaction-api`, WebFlux, no blocking calls in handlers). `transaction-processor` is intentionally not reactive in its execution model — Servlet actuator, blocking `@KafkaListener`, R2DBC used only as a driver. Don't "fix" that into WebFlux; it would be reactive costume with no reactive behavior.
 - Every service exposes `/actuator/health`.
 - Log pattern includes `traceId`/`spanId` (MDC) — never remove it.
 - Kafka: `observation-enabled: true` on template and listener (keeps trace context flowing).
