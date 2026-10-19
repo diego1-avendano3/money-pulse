@@ -68,26 +68,31 @@ Un único `traceId` (W3C `traceparent`) viaja por HTTP → header Kafka → logs
 - Eventos: JSON en Fase 0 → Avro + schema registry en Fase 2.
 - Observabilidad: Micrometer Tracing + bridge OpenTelemetry desde el commit 1.
 - Local: docker-compose (Kafka KRaft, sin Zookeeper). Kubernetes/EKS en Fase 7.
+- **AWS (capa gratuita, cuenta Free plan):** modo *always-on* serverless (API Gateway REST/HTTP/WebSocket, Cognito, Lambda, SQS/SNS, EventBridge, DynamoDB, RDS PostgreSQL, S3/CloudFront) + *labs* efímeros (EKS, Kafka/MSK, Glue Schema Registry). Plan completo y guardrails de costo: `docs/aws/AWS-PLAN.md`.
+- **Persistencia políglota:** PostgreSQL = ledger (fuente de verdad); DynamoDB = idempotencia, agregados en tiempo real, registros de baja latencia.
+- **IaC:** Terraform; CI/CD con GitHub Actions + OIDC.
 
 ## 7. Roadmap por fases (las *-ilities* como columna vertebral)
 
-| Fase | Foco | Cualidades sistémicas |
-|---|---|---|
-| 0 | Walking skeleton + arquitectura (C4) | deployability, trazabilidad (base) |
-| 1 | Slice full-stack + profundidad de React | rendimiento (frontend), usabilidad |
-| 2 | Núcleo event-driven + concurrencia | concurrencia, resiliencia (base) |
-| 3 | Resiliencia y disponibilidad (Resilience4j) | resiliencia, disponibilidad |
-| 4 | Seguridad (OAuth2/OIDC, secretos, OWASP) | seguridad |
-| 5 | Observabilidad y trazabilidad (OpenTelemetry) | trazabilidad, observabilidad |
-| 6 | Escalabilidad y rendimiento (k6, HPA, Redis) | escalabilidad, rendimiento |
-| 7 | Production-readiness: CI/CD + Kubernetes (EKS) | automatización, deployability |
+| Fase | Foco | Cualidades sistémicas | Eje AWS (ver `docs/aws/AWS-PLAN.md` §12) |
+|---|---|---|---|
+| 0 | Walking skeleton + arquitectura (C4) | deployability, trazabilidad (base) | — (solo local) |
+| 0.5 | Cuenta AWS y guardrails de costo | costo, seguridad base | Free plan, Budgets, IAM, Terraform bootstrap, OIDC |
+| 1 | Slice full-stack + profundidad de React | rendimiento (frontend), usabilidad | S3/CloudFront, Cognito, HTTP API + JWT, Lambda, RDS |
+| 2 | Núcleo event-driven + concurrencia | concurrencia, resiliencia (base) | SQS, DynamoDB, EventBridge, SNS, Glue Schema Registry |
+| 3 | Resiliencia y disponibilidad (Resilience4j) | resiliencia, disponibilidad | DLQ/redrive, fallos parciales, DLT Kafka |
+| 4 | Seguridad (OAuth2/OIDC, secretos, OWASP) | seguridad | REST API + mTLS, authorizer, usage plans, WebSocket, SSM |
+| 5 | Observabilidad y trazabilidad (OpenTelemetry) | trazabilidad, observabilidad | ADOT, X-Ray, CloudWatch |
+| 6 | Escalabilidad y rendimiento (k6, picos UC1–UC6) | escalabilidad, rendimiento | Load leveling, throttling, DynamoDB sharding, Step Functions |
+| 7 | Production-readiness: CI/CD + Kubernetes (EKS) | automatización, deployability | Lab EKS (+MSK opcional), KEDA, k6 → N events/s |
 
 Práctica transversal a todas las fases: **tests unitarios + de integración (Testcontainers)** desde el inicio.
 
 ## 8. Estado actual
 
 - **Fase 0: definida** (ver `specs/phase-0.md`). Pendiente: generar el repo ejecutable.
-- Fases 1–7: pendientes de detallar.
+- Fases 1–7: pendientes de detallar como specs; el eje AWS ya está planificado en `docs/aws/AWS-PLAN.md` (oct-2026).
+- **No abrir la cuenta AWS hasta cerrar la Fase 0 local**: el Free plan dura 6 meses desde su creación.
 
 ## 9. Enfoque de aprendizaje: Spec-Driven Development
 
@@ -112,6 +117,7 @@ Puntos deliberadamente sin cerrar, para revisarlos al retomar:
 4. **Generador sintético**: ¿servicio propio en el compose o utilidad de test?
 5. **Timing de seguridad**: Slalom pondera seguridad; ¿adelantar parte de la Fase 4?
 6. **Nombre del producto**: confirmar "Money Pulse" o elegir alternativa.
+7. **Decisiones abiertas del eje AWS**: ver `docs/aws/AWS-PLAN.md` §14 (EKS/MSK en Free plan, dominio para mTLS, Glue SR vs Apicurio, librerías con Boot 4).
 
 ## 11. Glosario
 
