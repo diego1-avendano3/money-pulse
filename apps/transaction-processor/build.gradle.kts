@@ -16,6 +16,19 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-actuator")
     implementation("org.springframework.boot:spring-boot-starter-kafka")
 
+    // Schema ownership (spec §4.4): this service runs Flyway at startup, before
+    // its readiness probe reports UP (§4.5). Flyway has no R2DBC support, so its
+    // migration runner always speaks JDBC -- unrelated to the r2dbc-postgresql
+    // driver task 8 adds for the service's actual (reactive) queries. Spring Boot
+    // builds Flyway's one-off DataSource from spring.flyway.url/user/password, so
+    // no spring-boot-starter-jdbc or DataSource bean is needed.
+    implementation("org.flywaydb:flyway-database-postgresql")
+    runtimeOnly("org.postgresql:postgresql")
+    // Boot 4 split FlywayAutoConfiguration out of spring-boot-autoconfigure into its
+    // own module (same pattern as the tracing/Kafka starters above) -- flyway-core on
+    // the classpath alone does not trigger it.
+    implementation("org.springframework.boot:spring-boot-flyway")
+
     // Same two-dependency tracing requirement as transaction-api (Boot 4 split
     // this out of starter-actuator):
     //  - spring-boot-micrometer-tracing-opentelemetry: Boot autoconfig, creates the Tracer
