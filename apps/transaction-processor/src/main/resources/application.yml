@@ -15,10 +15,16 @@ spring:
       observation-enabled: true
   flyway:
     # JDBC URL for Flyway's migration connection only (spec §3.2/§4.4) -- not
-    # the R2DBC connection task 8 adds for queries. Local default; overridden
+    # the R2DBC connection below for queries. Local default; overridden
     # in task 10 once compose wires this service's environment.
     url: ${POSTGRES_JDBC_URL:jdbc:postgresql://localhost:5432/moneypulse}
     user: ${POSTGRES_USER:mp}
+    password: ${POSTGRES_PASSWORD:mp}
+  r2dbc:
+    # Reactive connection for the listener's persistence (spec §3.2/§4.6) --
+    # separate driver and URL scheme from Flyway's JDBC connection above.
+    url: ${POSTGRES_R2DBC_URL:r2dbc:postgresql://localhost:5432/moneypulse}
+    username: ${POSTGRES_USER:mp}
     password: ${POSTGRES_PASSWORD:mp}
 
 server:

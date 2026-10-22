@@ -24,6 +24,11 @@ dependencies {
     // no spring-boot-starter-jdbc or DataSource bean is needed.
     implementation("org.flywaydb:flyway-database-postgresql")
     runtimeOnly("org.postgresql:postgresql")
+    implementation("org.springframework.boot:spring-boot-starter-data-r2dbc")
+    // The R2DBC Postgres driver moved coordinates from io.r2dbc:r2dbc-postgresql
+    // to org.postgresql:r2dbc-postgresql (pgjdbc/r2dbc-postgresql); the old
+    // group id no longer resolves a current version.
+    runtimeOnly("org.postgresql:r2dbc-postgresql")
     // Boot 4 split FlywayAutoConfiguration out of spring-boot-autoconfigure into its
     // own module (same pattern as the tracing/Kafka starters above) -- flyway-core on
     // the classpath alone does not trigger it.
