@@ -1,6 +1,8 @@
 package com.moneypulse.transactionprocessor.transaction;
 
 import java.time.Clock;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.data.r2dbc.core.R2dbcEntityOperations;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
@@ -25,6 +27,8 @@ import tools.jackson.databind.json.JsonMapper;
 @Component
 class TransactionEventListener {
 
+    private static final Logger log = LoggerFactory.getLogger(TransactionEventListener.class);
+
     private final R2dbcEntityOperations entityOperations;
     private final JsonMapper jsonMapper;
     private final Clock clock;
@@ -39,6 +43,11 @@ class TransactionEventListener {
     void onMessage(String payload) {
         TransactionEvent event = jsonMapper.readValue(payload, TransactionEvent.class);
         entityOperations.insert(toRow(event)).block();
+        // Without a log line here, nothing observes the traceId this listener
+        // invocation carries (observation-enabled propagates it into the MDC,
+        // but an empty method body never surfaces it) -- spec V6 greps both
+        // services' logs for the same traceId.
+        log.info("Persisted transaction {}", event.id());
     }
 
     private TransactionRow toRow(TransactionEvent event) {
