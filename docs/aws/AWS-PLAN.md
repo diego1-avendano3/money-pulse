@@ -19,6 +19,10 @@
 6. **Tres APIs en API Gateway**, cada una con su modelo de seguridad: REST (webhooks B2B con **mTLS** + Lambda authorizer + usage plans), HTTP (app con **JWT/OIDC de Cognito** + scopes) y WebSocket (alertas en tiempo real).
 7. **Todo con Terraform + etiquetas + `destroy`**, y despliegue por GitHub Actions con **OIDC** (sin llaves de acceso de larga vida).
 8. **Lógica de negocio una sola vez** (módulo `libs/ledger-core`, hexagonal); Lambda y Spring/Kafka son solo adaptadores.
+9. **IA generativa real, no de juguete:** el motor de reglas de `ledger-core` categoriza lo obvio;
+   lo que no resuelve va a **Amazon Bedrock** (on-demand) — una dependencia externa de verdad, con
+   la misma disciplina de resiliencia (circuit breaker, fallback) y control de costo (caché por
+   comercio) que el resto del sistema. Ver §3, §7 (UC5) y §14 (A8).
 
 ---
 
@@ -43,7 +47,7 @@
 - [ ] Usuario IAM `diego-admin` con MFA; credenciales CLI temporales con `aws sts get-session-token` / `assume-role`.
 - [ ] **Bloquear regiones**: política IAM que niegue todo fuera de `us-east-1` (condición `aws:RequestedRegion`).
 - [ ] **AWS Budgets**: plantilla *Zero spend budget* + budget mensual USD 5 con alertas al 50/80/100 % (es además una de las 5 actividades que dan USD 20).
-- [ ] Hacer las otras 4 actividades de "Explore AWS" (EC2 launch+terminate, RDS, Lambda con function URL, Bedrock playground) → +USD 80. **Termina/borra todo lo que creen.**
+- [ ] Hacer las otras 4 actividades de "Explore AWS" (EC2 launch+terminate, RDS, Lambda con function URL, Bedrock playground) → +USD 80. **Termina/borra todo lo que creen.** *(El playground de Bedrock aquí es solo para ganar el crédito; el uso real de Bedrock en el producto —categorización de comercios, UC5— llega en las Fases 2–3, ver §3, §7, §14 A8.)*
 - [ ] Billing preferences: activar alertas de Free Tier por email. Activar **Cost Anomaly Detection** (gratis).
 - [ ] Verificar en Service Quotas el límite de **concurrencia de Lambda** (en cuentas nuevas puede ser muy bajo) y el *account-level throttle* de API Gateway. Anótalos: son datos de entrada de las pruebas de picos.
 - [ ] Verificar si el Free plan permite **EKS y MSK** en tu cuenta (consola → intentar el asistente de creación sin confirmar). Si no, ver §12 (Fase 7, opción B).
@@ -69,6 +73,7 @@
 | Bucles Lambda ↔ SQS/SNS, reintentos infinitos | requests | `maxReceiveCount` + DLQ siempre; *reserved concurrency* en cada función. |
 | Route 53 hosted zone | USD 0.50/mes | Opcional; DNS externo gratuito (p. ej. Cloudflare) para el dominio del lab mTLS. |
 | Cognito M2M (client credentials) | por token request | Para B2B se usa **mTLS + API key**, no client credentials. |
+| **Bedrock Provisioned Throughput** | Cientos de USD/mes (reserva por hora, no por uso) | Solo **on-demand** (pago por token); modelo más económico disponible (Claude Haiku / Amazon Nova Micro); caché por comercio (UC5) antes de pensar en escalar volumen. |
 
 ### 1.4 Presupuesto de créditos (6 meses, estimado)
 
@@ -80,7 +85,8 @@
 | Labs EKS | 8 sesiones × ~4 h (control plane + 2 nodos `t3.small` + IPv4 + ALB) | 10–15 |
 | Labs MSK (opcional) | 2–3 sesiones × 3 h | 2–5 |
 | ECR, S3, EventBridge custom events, X-Ray > always free, varios | — | 5–10 |
-| **Total** | | **≈ 40–70 de 100–200** |
+| Bedrock on-demand (modelo económico, con caché por comercio) | Unos pocos miles de invocaciones a lo largo de Fases 2–6, no por transacción | 2–5 |
+| **Total** | | **≈ 42–75 de 100–200** |
 
 La holgura es deliberada: si ves que pasas de USD 15/mes en el *Billing dashboard*, para y revisa.
 
@@ -134,6 +140,10 @@ flowchart LR
     DDB[(DynamoDB<br/>idempotencia · agregados · conexiones)]
   end
 
+  subgraph "IA generativa"
+    BEDROCK[Amazon Bedrock<br/>categorización semántica de comercios]
+  end
+
   subgraph Eventos
     STR[DynamoDB Streams]
     ALERT[Lambda alert-evaluator]
@@ -153,8 +163,10 @@ flowchart LR
   SQSI -.lab.-> BR --> K --> PROC
   LW --> RDS
   LW --> DDB
+  LW -. comercio sin regla .-> BEDROCK
   PROC --> RDS
   PROC --> DDB
+  PROC -. comercio sin regla .-> BEDROCK
   HAPI --> READ[Lambda read-api] --> RDS
   READ --> DDB
   HAPI -.lab.-> TAPI
@@ -163,7 +175,7 @@ flowchart LR
   EB --> SNS
 ```
 
-**Cómo leerlo:** la entrada (API Gateway → SQS) siempre está encendida y es gratis; los mensajes esperan en SQS (retención hasta 14 días) aunque el núcleo Kafka esté apagado. Un *feature flag* de Terraform `streaming_core = "lambda" | "kafka"` decide quién drena la cola de ingesta: la Lambda `ledger-writer` (always-on) o el `ingest-bridge` en EKS (lab). Ese patrón —*buffer durable delante de un componente que no siempre está disponible*— es en sí mismo una historia de entrevista.
+**Cómo leerlo:** la entrada (API Gateway → SQS) siempre está encendida y es gratis; los mensajes esperan en SQS (retención hasta 14 días) aunque el núcleo Kafka esté apagado. Un *feature flag* de Terraform `streaming_core = "lambda" | "kafka"` decide quién drena la cola de ingesta: la Lambda `ledger-writer` (always-on) o el `ingest-bridge` en EKS (lab). Ese patrón —*buffer durable delante de un componente que no siempre está disponible*— es en sí mismo una historia de entrevista. La llamada a **Bedrock** (línea punteada) solo ocurre cuando el motor de reglas de `ledger-core` no reconoce el comercio — es la minoría de los casos, no el camino caliente — y no necesita VPC: es una llamada pública regional firmada con SigV4, igual que cualquier otra llamada del SDK de AWS.
 
 ### 2.1 Cambios al repositorio
 
@@ -183,6 +195,10 @@ apps/
     janitor/                NUEVO  higiene de costos
 libs/
   ledger-core/              NUEVO  dominio puro (sin Spring ni AWS): categorización, reglas, puertos
+                                   Puerto MerchantCategorizer con dos adaptadores: `rules` (reglas
+                                   deterministas, default local) y `bedrock` (BedrockRuntimeClient,
+                                   solo cuando las reglas no resuelven el comercio). Mismo espíritu
+                                   que el feature flag `streaming_core`.
 infra/terraform/
   bootstrap/                estado remoto (S3 + lockfile nativo), rol OIDC de GitHub
   modules/                  api-rest-mtls, api-http, api-ws, sqs-with-dlq, lambda-java, rds, dynamodb…
@@ -219,6 +235,7 @@ docs/aws/                   este plan + ADRs
 | **EC2 / VPC** | Red de RDS y EKS | Subredes, SG vs NACL, gateway endpoints, por qué no NAT | Créditos |
 | **EKS** (lab) | Kafka + servicios Spring, HPA/KEDA | Pod Identity, AWS LB Controller, managed node groups, upgrades | Créditos, por horas |
 | **MSK** (lab opcional) + **Glue Schema Registry** | Kafka gestionado, Avro | IAM auth para Kafka, compatibilidad de esquemas (BACKWARD), serde de AWS | Por horas / SR sin costo |
+| **Bedrock** (Converse API, on-demand) | Categoriza comercios que el motor de reglas de `ledger-core` no resuelve (fallback de UC5) | On-demand vs Provisioned Throughput, *structured output* (tool-use/JSON), IAM `bedrock:InvokeModel` acotado al ARN del modelo, por qué no necesita VPC endpoint (SigV4 sobre el endpoint regional público) | Créditos (por token; sin tier always-free) |
 | **Terraform + GitHub Actions** | Todo | Estado remoto, módulos, plan en PR, OIDC | Gratis |
 
 ---
@@ -428,10 +445,11 @@ Cada caso se convierte en un escenario k6 en `load-tests/k6/` y en criterios ver
 - **Estrategia:** idempotencia en tres capas: `Idempotency-Key` en la API (registro en DynamoDB, TTL 48 h), restricción `unique` en Postgres y consumidor idempotente (Powertools Idempotency). Kafka: productor idempotente (`enable.idempotence=true`).
 - **Criterio:** enviar 1 000 transacciones × 3 duplicados → exactamente 1 000 filas y agregados correctos.
 
-### UC5 — Dependencia lenta (categorización externa)
-- **Situación:** un servicio externo de enriquecimiento de comercios (simulado con latencia/errores inyectados) se degrada.
-- **Estrategia:** Resilience4j (circuit breaker + timeout + bulkhead) en el processor; *fallback* = `category = UNCATEGORIZED` y evento `CategorizationDeferred` que un job de EventBridge Scheduler reintenta luego. En Lambda: timeout corto + DLQ con *redrive* manual.
-- **Criterio:** con la dependencia al 50 % de errores, la ingesta no cae y el backlog se recupera tras restablecerla.
+### UC5 — Dependencia lenta: categorización semántica con Bedrock
+- **Situación:** la mayoría de comercios los resuelve el motor de reglas de `ledger-core` en <1 ms. Los que no matchean ninguna regla (comercio nuevo, nombre con ruido del POS) van a **Amazon Bedrock** para categorización semántica (p. ej. `"UBER *EATS BOGOTA"` → `Restaurantes`). Es una dependencia externa real — no simulada — con latencia variable y throttling posible bajo picos.
+- **Riesgo:** sin control, un pico de comercios desconocidos (p. ej. UC3, Black Friday) multiplica las llamadas a Bedrock, dispara su throttling y además el costo (por token, sin tier always-free).
+- **Estrategia:** (1) **caché por nombre de comercio normalizado** en DynamoDB (`MERCHANT_CAT#<nombre-normalizado>`) — un comercio nuevo solo invoca a Bedrock una vez, nunca en duplicados o picos del mismo comercio; (2) Resilience4j (circuit breaker + timeout + bulkhead) en el processor alrededor de la llamada; *fallback* = `category = UNCATEGORIZED` y evento `CategorizationDeferred` que un job de EventBridge Scheduler reintenta luego. En Lambda: timeout corto + DLQ con *redrive* manual.
+- **Criterio:** con Bedrock degradado (throttling/errores inyectados al 50 % en la prueba), la ingesta no cae y el backlog de "por categorizar" se resuelve tras restablecerse. Además: costo medido y documentado en `docs/perf/` (USD por 1 000 comercios nuevos, antes y después de la caché).
 
 ### UC6 — Cierre de mes: detección de suscripciones
 - **Situación:** proceso batch nocturno que analiza el mes de cada usuario.
@@ -490,6 +508,7 @@ export const options = {
 - **Cifrado:** en reposo por defecto (S3, DynamoDB, RDS, SQS SSE); en tránsito TLS en todos los tramos (§4.4).
 - **OWASP API Top 10:** BOLA (test explícito), validación de esquemas en el borde, límites de tamaño, rate limiting, sin `show-details: always` en health fuera de local.
 - **Datos personales:** las transacciones son sintéticas; aun así, logs sin PII (se registran ids, no nombres de comercio + montos juntos).
+- **Bedrock:** rol IAM con `bedrock:InvokeModel`/`InvokeModelWithResponseStream` acotado al ARN del modelo elegido (nunca `*`); sin llaves de API — todo firmado SigV4 por el SDK, igual que el resto de AWS. El prompt solo recibe el nombre del comercio (dato sintético, no PII) — nunca monto, cuenta ni cualquier otro campo del usuario.
 
 ## 10. Observabilidad
 
@@ -520,8 +539,8 @@ Semana 0 = día en que abres la cuenta Free plan (después de terminar Fase 0 lo
 | **0** | antes de la cuenta | Walking skeleton local | Terminar tareas 7–16 del spec. Nada en AWS. | Criterios V1–V12 actuales. |
 | **0.5** | 0 | Paso 0 | §1.2 completo; `infra/terraform/bootstrap` (estado remoto + rol OIDC); `ci.yml`. | Budget activo; `terraform plan` desde Actions sin llaves; acceso denegado fuera de `us-east-1`. |
 | **1** | 1–4 | Slice full-stack + React | S3 + CloudFront (OAC) para la PWA; **Cognito** (PKCE); **HTTP API** con JWT authorizer y scopes; Lambda `read-api`; **RDS** en subred privada + IAM auth; VPC sin NAT. Deploy por pipeline. | Login → lista de transacciones desde RDS vía HTTP API; ruta sin scope → 403; test BOLA verde. |
-| **2** | 5–9 | Núcleo event-driven + concurrencia | `libs/ledger-core`; **SQS ingest + DLQ**; `ledger-writer` (Powertools batch + idempotency); **DynamoDB** single-table + Streams; **EventBridge** bus; **SNS** fan-out de alertas. Local: Avro + **Glue Schema Registry** en Kafka (compose). | UC4 verde (duplicados); evento en RDS + agregado en DynamoDB; esquema Avro rechaza cambio incompatible. |
-| **3** | 10–11 | Resiliencia y disponibilidad | DLQ + redrive, fallos parciales en lote, Resilience4j en processor, `@RetryableTopic`/DLT en Kafka, job de migración Flyway separado, UC5. | Mensaje venenoso termina en DLQ sin bloquear el lote; CB abre/cierra en test. |
+| **2** | 5–9 | Núcleo event-driven + concurrencia | `libs/ledger-core` con puerto `MerchantCategorizer` (adaptador `rules` + primera llamada **Bedrock** en happy path, sin resiliencia aún); **SQS ingest + DLQ**; `ledger-writer` (Powertools batch + idempotency); **DynamoDB** single-table + Streams; **EventBridge** bus; **SNS** fan-out de alertas. Local: Avro + **Glue Schema Registry** en Kafka (compose). | UC4 verde (duplicados); evento en RDS + agregado en DynamoDB; esquema Avro rechaza cambio incompatible; comercio no reconocido por reglas vuelve categorizado por Bedrock. |
+| **3** | 10–11 | Resiliencia y disponibilidad | DLQ + redrive, fallos parciales en lote, Resilience4j en processor, `@RetryableTopic`/DLT en Kafka, job de migración Flyway separado, UC5 (circuit breaker + caché por comercio sobre Bedrock). | Mensaje venenoso termina en DLQ sin bloquear el lote; CB abre/cierra en test; UC5 verde con Bedrock degradado; costo por 1 000 comercios nuevos documentado. |
 | **4** | 12–14 | Seguridad | **REST API webhooks**: dominio + ACM + **mTLS** + truststore S3 + authorizer con revocación + usage plans/API keys + request validation + integración directa SQS; **WebSocket API**; SSM; Access Analyzer. | Sin cert → handshake falla; cert revocado → 403; 3 agregadores con cuotas distintas → 429 al exceder. |
 | **5** | 15–16 | Observabilidad | ADOT/X-Ray, dashboards, 10 alarmas, SLO, Logs Insights guardadas. | Un traceId visible en X-Ray desde API GW hasta escritura en DynamoDB. |
 | **6** | 17–19 | Escalabilidad y rendimiento | UC1, UC2 (claim-check + Step Functions), UC3, UC6 en always-on con k6; tuning de ESM/batch/pool. | Criterios de §7 cumplidos y reportados en `docs/perf/`. |
@@ -545,10 +564,11 @@ Semana 0 = día en que abres la cuenta Free plan (después de terminar Fase 0 lo
 | **OpenTelemetry** tracing distribuido | Fase 0 local → Fase 5 en X-Ray. |
 | **AWS EKS** vía **GitHub Actions** CI/CD, unit + **Testcontainers** | Fase 7 (`lab-eks.yml`), CI desde la Fase 0.5. |
 | React (TypeScript) PWA | Fases 1+ (sin cambios). |
+| **IA generativa (AWS Bedrock)** en un flujo productivo, con resiliencia y control de costo explícito | Fase 2: puerto `MerchantCategorizer` + happy path. Fase 3: circuit breaker/fallback (UC5) + caché por comercio, costo medido en USD/1 000 llamadas. |
 
 **Sugerencia de redacción** (cuando tengas el número; mantén la honestidad: EKS es un entorno efímero de laboratorio):
 
-> Shipping to **AWS** — API Gateway (mTLS for B2B webhooks, Cognito OAuth2/JWT, usage-plan throttling), Lambda, SQS/SNS/EventBridge, RDS PostgreSQL and DynamoDB — plus ephemeral **EKS** load-test environments, all provisioned with Terraform through a GitHub Actions CI/CD pipeline (OIDC, unit and Testcontainers integration tests); React (TypeScript) PWA front end.
+> Shipping to **AWS** — API Gateway (mTLS for B2B webhooks, Cognito OAuth2/JWT, usage-plan throttling), Lambda, SQS/SNS/EventBridge, RDS PostgreSQL and DynamoDB, **generative AI via Amazon Bedrock** for merchant categorization (circuit-breaker fallback, per-merchant caching for cost control) — plus ephemeral **EKS** load-test environments, all provisioned with Terraform through a GitHub Actions CI/CD pipeline (OIDC, unit and Testcontainers integration tests); React (TypeScript) PWA front end.
 
 ---
 
@@ -563,6 +583,7 @@ Semana 0 = día en que abres la cuenta Free plan (después de terminar Fase 0 lo
 | A5 | LocalStack: cambios recientes de licencia de la edición gratuita | Verificar; alternativas: DynamoDB Local + ElasticMQ en Testcontainers | 2 |
 | A6 | Cuota de concurrencia Lambda baja en cuentas nuevas | Diseñar con ella (es un buen limitador); pedir aumento si bloquea UC1 | 0.5 / 6 |
 | A7 | Ventana de 6 meses vs ritmo de aprendizaje de React | Fases 1 y 6 son las de mayor riesgo de retraso; recortar UC3/UC6 antes que seguridad o EKS | continuo |
+| A8 | Modelo de Bedrock y control de costo | On-demand (nunca Provisioned Throughput); Claude Haiku o Amazon Nova Micro (el más barato disponible al decidir); caché por comercio en DynamoDB antes de medir volumen real; cortar la llamada a Bedrock durante las pruebas de carga de k6 (UC1/UC3) salvo que el escenario sea explícitamente sobre UC5 | 2 |
 
 ## 15. Fuentes
 

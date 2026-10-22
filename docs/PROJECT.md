@@ -40,6 +40,11 @@ Por qué el caso justifica cada tecnología:
 - **Seguridad**: PII + datos financieros → cifrado, OAuth2/OIDC, secretos, IAM de mínimo privilegio.
 - **Trazabilidad**: auditar cada transacción de extremo a extremo (tracing distribuido).
 - **Móvil**: React PWA responsive + push notifications.
+- **IA generativa (Bedrock)**: los comercios que no resuelve el motor de reglas (`libs/ledger-core`)
+  se categorizan semánticamente con AWS Bedrock — una dependencia externa real, no simulada.
+  Justifica practicar un patrón que hoy pesa en el mercado (IA generativa en producción) con los
+  mismos controles que ya exige el resto del sistema: resiliencia (circuit breaker + fallback,
+  UC5), caché para controlar costo, y seguridad (IAM de mínimo privilegio, sin API keys).
 
 Scoping práctico: **no se requieren convenios bancarios**. El stream se simula con un generador sintético de transacciones que imita los webhooks del agregador.
 
@@ -71,6 +76,10 @@ Un único `traceId` (W3C `traceparent`) viaja por HTTP → header Kafka → logs
 - **AWS (capa gratuita, cuenta Free plan):** modo *always-on* serverless (API Gateway REST/HTTP/WebSocket, Cognito, Lambda, SQS/SNS, EventBridge, DynamoDB, RDS PostgreSQL, S3/CloudFront) + *labs* efímeros (EKS, Kafka/MSK, Glue Schema Registry). Plan completo y guardrails de costo: `docs/aws/AWS-PLAN.md`.
 - **Persistencia políglota:** PostgreSQL = ledger (fuente de verdad); DynamoDB = idempotencia, agregados en tiempo real, registros de baja latencia.
 - **IaC:** Terraform; CI/CD con GitHub Actions + OIDC.
+- **IA generativa:** AWS Bedrock (on-demand, nunca Provisioned Throughput), modelo económico
+  (Claude Haiku o Amazon Nova Micro), para categorizar comercios que el motor de reglas de
+  `libs/ledger-core` no resuelve. Detalle, resiliencia (UC5) y control de costo en
+  `docs/aws/AWS-PLAN.md` §3, §7 y §14.
 
 ## 7. Roadmap por fases (las *-ilities* como columna vertebral)
 
@@ -79,8 +88,8 @@ Un único `traceId` (W3C `traceparent`) viaja por HTTP → header Kafka → logs
 | 0 | Walking skeleton + arquitectura (C4) | deployability, trazabilidad (base) | — (solo local) |
 | 0.5 | Cuenta AWS y guardrails de costo | costo, seguridad base | Free plan, Budgets, IAM, Terraform bootstrap, OIDC |
 | 1 | Slice full-stack + profundidad de React | rendimiento (frontend), usabilidad | S3/CloudFront, Cognito, HTTP API + JWT, Lambda, RDS |
-| 2 | Núcleo event-driven + concurrencia | concurrencia, resiliencia (base) | SQS, DynamoDB, EventBridge, SNS, Glue Schema Registry |
-| 3 | Resiliencia y disponibilidad (Resilience4j) | resiliencia, disponibilidad | DLQ/redrive, fallos parciales, DLT Kafka |
+| 2 | Núcleo event-driven + concurrencia | concurrencia, resiliencia (base) | SQS, DynamoDB, EventBridge, SNS, Glue Schema Registry, **Bedrock (categorización, happy path)** |
+| 3 | Resiliencia y disponibilidad (Resilience4j) | resiliencia, disponibilidad | DLQ/redrive, fallos parciales, DLT Kafka, **circuit breaker + caché sobre Bedrock (UC5)** |
 | 4 | Seguridad (OAuth2/OIDC, secretos, OWASP) | seguridad | REST API + mTLS, authorizer, usage plans, WebSocket, SSM |
 | 5 | Observabilidad y trazabilidad (OpenTelemetry) | trazabilidad, observabilidad | ADOT, X-Ray, CloudWatch |
 | 6 | Escalabilidad y rendimiento (k6, picos UC1–UC6) | escalabilidad, rendimiento | Load leveling, throttling, DynamoDB sharding, Step Functions |
@@ -118,6 +127,8 @@ Puntos deliberadamente sin cerrar, para revisarlos al retomar:
 5. **Timing de seguridad**: Slalom pondera seguridad; ¿adelantar parte de la Fase 4?
 6. **Nombre del producto**: confirmar "Money Pulse" o elegir alternativa.
 7. **Decisiones abiertas del eje AWS**: ver `docs/aws/AWS-PLAN.md` §14 (EKS/MSK en Free plan, dominio para mTLS, Glue SR vs Apicurio, librerías con Boot 4).
+8. **Modelo de Bedrock y control de costo**: ver `docs/aws/AWS-PLAN.md` §14 (A8) — on-demand vs
+   Provisioned Throughput, qué modelo, estrategia de caché por comercio.
 
 ## 11. Glosario
 
