@@ -22,6 +22,9 @@ class TransactionControllerValidationTest {
     @MockitoBean
     private TransactionPublisher publisher;
 
+    @MockitoBean
+    private TransactionRepository repository;
+
     @Test
     void validRequestIsAcceptedAndReturnsTheGeneratedId() {
         UUID id = UUID.randomUUID();

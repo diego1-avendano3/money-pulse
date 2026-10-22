@@ -26,6 +26,12 @@ spring:
       # Wraps each send() in an Observation and injects the W3C traceparent
       # header into the Kafka record — this is how the traceId crosses HTTP -> Kafka.
       observation-enabled: true
+  r2dbc:
+    # Read-only side of the CQRS-lite split (spec §4.3) -- this service never
+    # writes through this connection. Local default; overridden in task 10.
+    url: ${POSTGRES_R2DBC_URL:r2dbc:postgresql://localhost:5432/moneypulse}
+    username: ${POSTGRES_USER:mp}
+    password: ${POSTGRES_PASSWORD:mp}
 
 server:
   port: 8080

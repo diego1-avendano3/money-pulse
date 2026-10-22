@@ -17,6 +17,12 @@ dependencies {
     // is out of the Boot 4 BOM and in maintenance mode (spec §3.1).
     implementation("org.springframework.boot:spring-boot-starter-kafka")
 
+    // Read side of the CQRS-lite split (spec §4.3): the API reads transactions
+    // via R2DBC, never writes the table. org.postgresql:r2dbc-postgresql is the
+    // current coordinate -- io.r2dbc:r2dbc-postgresql no longer resolves (task 8).
+    implementation("org.springframework.boot:spring-boot-starter-data-r2dbc")
+    runtimeOnly("org.postgresql:r2dbc-postgresql")
+
     // Tracing over OpenTelemetry (Boot 4 split this out of starter-actuator):
     //  - spring-boot-micrometer-tracing-opentelemetry: Boot autoconfig, creates the Tracer
     //  - micrometer-tracing-bridge-otel: the OTel bridge + the SLF4J listener that
