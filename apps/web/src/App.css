@@ -1,10 +1,29 @@
-.placeholder {
+.app {
+  max-width: 480px;
+  margin: 0 auto;
+  padding: 1.5rem 1rem;
+}
+
+.app form {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  min-height: 100vh;
   gap: 0.5rem;
-  text-align: center;
-  padding: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.app label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  text-align: left;
+  font-size: 0.875rem;
+}
+
+.app ul {
+  list-style: none;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  text-align: left;
 }

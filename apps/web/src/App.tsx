@@ -1,10 +1,16 @@
 import './App.css'
+import { TransactionForm } from './components/TransactionForm'
+import { TransactionList } from './components/TransactionList'
+import { useTransactions } from './hooks/useTransactions'
 
 function App() {
+  const { transactions, loading, error, creating, createTransaction } = useTransactions()
+
   return (
-    <main className="placeholder">
+    <main className="app">
       <h1>Money Pulse</h1>
-      <p>Scaffold listo (task 11) — la lista y el formulario de transacciones llegan en la task 12.</p>
+      <TransactionForm onCreate={createTransaction} creating={creating} />
+      <TransactionList transactions={transactions} loading={loading} error={error} />
     </main>
   )
 }
