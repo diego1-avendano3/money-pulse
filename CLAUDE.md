@@ -16,7 +16,7 @@ Kafka, get categorized, and trigger real-time spend alerts. Built to demonstrate
 - Java 21, Spring Boot 4.1+, Gradle (Kotlin DSL)
 - transaction-api: Spring WebFlux + R2DBC (fully reactive, no blocking calls)
 - transaction-processor: Spring MVC (Servlet, actuator only) + blocking `@KafkaListener` + R2DBC as persistence driver only (`.block()` allowed here — intentional, see spec §3.2/§4.6)
-- web: Vite + React 18 + TypeScript (PWA)
+- web: Vite + React 19 + TypeScript (PWA)
 - Kafka (KRaft), PostgreSQL, Docker Compose `compose.yaml` (local)
 - AWS (Free plan): serverless always-on + ephemeral EKS/MSK labs, DynamoDB + RDS PostgreSQL, Terraform. See `docs/aws/AWS-PLAN.md`.
 - **Cost guardrail (hard rule):** never propose NAT Gateway, interface VPC endpoints, Secrets Manager, customer-managed KMS keys, MSK Serverless, AWS Organizations/IAM Identity Center, or long-running EKS/ALB. Every AWS resource is in Terraform, tagged, and labs end with `destroy`. Check `docs/aws/AWS-PLAN.md` §1.3 before adding any AWS resource.

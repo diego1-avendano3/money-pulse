@@ -1,8 +1,8 @@
 name: money-pulse
 
-# Local infrastructure for Phase 0 (walking skeleton).
-# App services (transaction-api, transaction-processor, web) are added in later
-# phase-0 tasks; this file currently only stands up Kafka + PostgreSQL + a dev UI.
+# Local infrastructure for Phase 0 (walking skeleton): Kafka + PostgreSQL,
+# the transaction-api/transaction-processor services, the web PWA, and
+# kafka-ui as dev tooling.
 
 services:
   postgres:
@@ -115,6 +115,27 @@ services:
       timeout: 5s
       retries: 10
       start_period: 30s
+    networks: [money-pulse]
+
+  web:
+    build:
+      context: apps/web   # self-contained npm project -- unlike the Java
+                           # services, it doesn't need the rest of the monorepo.
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "5173:5173"
+    environment:
+      VITE_API_PROXY_TARGET: http://transaction-api:8080
+    depends_on:
+      transaction-api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:5173/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
     networks: [money-pulse]
 
   # ---------------------------------------------------------------------------

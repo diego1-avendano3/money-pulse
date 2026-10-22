@@ -69,7 +69,10 @@ Un único `traceId` (W3C `traceparent`) viaja por HTTP → header Kafka → logs
 - Java 21, Spring Boot 4.1+ (la línea 3.x quedó EOL antes de arrancar el lab), Gradle (Kotlin DSL).
 - Transaction API: Spring WebFlux + R2DBC (reactivo E2E).
 - Transaction Processor: Spring Kafka + R2DBC.
-- Web: Vite + React 18 + TypeScript (PWA).
+- Web: Vite + React 19 + TypeScript (PWA). *(Actualizado en la tarea 11: el
+  spec original fijaba React 18; para oct-2026 el ecosistema ya giró a 19 y
+  mantenerse en 18 no tendría sentido para un lab que busca enseñar React
+  vigente de cara a una entrevista senior.)*
 - Eventos: JSON en Fase 0 → Avro + schema registry en Fase 2.
 - Observabilidad: Micrometer Tracing + bridge OpenTelemetry desde el commit 1.
 - Local: docker-compose (Kafka KRaft, sin Zookeeper). Kubernetes/EKS en Fase 7.
