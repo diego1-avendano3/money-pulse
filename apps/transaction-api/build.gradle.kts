@@ -5,6 +5,10 @@ plugins {
 
 description = "Reactive API: accepts transactions, publishes to Kafka, reads the store"
 
+// Only the boot jar is packaged (task 10's Dockerfile copies build/libs/*.jar);
+// without this, Gradle also produces a "-plain.jar" and the copy is ambiguous.
+tasks.jar { enabled = false }
+
 dependencies {
     implementation(platform(libs.spring.boot.dependencies))
 
