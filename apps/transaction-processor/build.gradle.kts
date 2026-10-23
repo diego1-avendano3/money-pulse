@@ -47,4 +47,17 @@ dependencies {
     implementation("io.micrometer:micrometer-tracing-bridge-otel")
 
     testImplementation("org.springframework.boot:spring-boot-starter-test")
+
+    // Same verified block as transaction-api (task 13) -- spring-boot-dependencies
+    // doesn't manage org.testcontainers:* versions in Boot 4.1, and Testcontainers
+    // 2.x renamed the integration artifacts (junit-jupiter/kafka/postgresql ->
+    // testcontainers-*). testcontainers-r2dbc is needed separately for
+    // @ServiceConnection to wire R2DBC from the PostgreSQLContainer.
+    testImplementation("org.springframework.boot:spring-boot-testcontainers")
+    testImplementation(platform("org.testcontainers:testcontainers-bom:2.0.3"))
+    testImplementation("org.testcontainers:testcontainers-junit-jupiter")
+    testImplementation("org.testcontainers:testcontainers-kafka")
+    testImplementation("org.testcontainers:testcontainers-postgresql")
+    testImplementation("org.testcontainers:testcontainers-r2dbc")
+    testImplementation("org.springframework.kafka:spring-kafka-test")
 }
