@@ -40,4 +40,19 @@ dependencies {
     testImplementation("io.projectreactor:reactor-test")
     // Boot 4 split @WebFluxTest out of spring-boot-test-autoconfigure into its own module.
     testImplementation("org.springframework.boot:spring-boot-webflux-test")
+
+    testImplementation("org.springframework.boot:spring-boot-testcontainers")
+    // spring-boot-dependencies does not manage org.testcontainers:* versions in
+    // Boot 4.1 (only its own spring-boot-testcontainers module) -- unlike Boot 3.x.
+    testImplementation(platform("org.testcontainers:testcontainers-bom:2.0.3"))
+    // Testcontainers 2.x renamed these artifacts -- "junit-jupiter"/"kafka"/
+    // "postgresql" (the 1.x names) no longer exist; the bom only has entries
+    // for the "testcontainers-"-prefixed 2.x names.
+    testImplementation("org.testcontainers:testcontainers-junit-jupiter")
+    testImplementation("org.testcontainers:testcontainers-kafka")
+    testImplementation("org.testcontainers:testcontainers-postgresql")
+    // R2DBCDatabaseContainer -- Boot's @ServiceConnection needs this to wire an
+    // R2DBC connection (separate from the JDBC-oriented testcontainers-postgresql).
+    testImplementation("org.testcontainers:testcontainers-r2dbc")
+    testImplementation("org.springframework.kafka:spring-kafka-test")
 }
