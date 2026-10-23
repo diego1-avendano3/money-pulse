@@ -64,6 +64,9 @@ User (mobile)
 
 Un único `traceId` (W3C `traceparent`) viaja por HTTP → header Kafka → logs del consumidor. Detalle completo en `specs/phase-0.md`.
 
+Diagramas C4: [Contexto (nivel 1)](architecture/c4-context.md) ·
+[Contenedores (nivel 2)](architecture/c4-container.md).
+
 ## 6. Stack y decisiones (defaults)
 
 - Java 21, Spring Boot 4.1+ (la línea 3.x quedó EOL antes de arrancar el lab), Gradle (Kotlin DSL).
