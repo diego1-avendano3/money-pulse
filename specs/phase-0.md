@@ -4,8 +4,10 @@
 > se deriva de este spec; si un requisito cambia, se edita aquí primero y se
 > regenera lo afectado.
 >
-> Estado: **aprobado, pendiente de implementación.**
-> Fase siguiente: `specs/phase-1.md` (aún no escrita).
+> Estado: **completada y verificada** (V1–V12 validados manualmente en Windows /
+> PowerShell; resultados y mediciones en §8). Tareas 1–16 completadas.
+> Fase siguiente: Fase 0.5 (paso 0 de AWS: `specs/phase-0.5.md`, aún no escrita;
+> ver `docs/aws/AWS-PLAN.md` §1 y §12), luego `specs/phase-1.md` (aún no escrita).
 
 ---
 
@@ -168,6 +170,15 @@ asimetría real del cable frente a los ejemplos de este documento (que usan
 en Fase 1**: decidir si se trunca `receivedAt`/`occurredAt` a milisegundos (más
 consistente entre lenguajes/consumidores) o si se acepta precisión variable como
 parte del contrato.
+
+**Ampliación (detectada al verificar V4):** la asimetría también existe entre el
+cable y el almacén. PostgreSQL `timestamptz` guarda **microsegundos** (6 decimales),
+así que al persistir se trunca de nanosegundos a microsegundos, y `GET /transactions`
+devuelve `receivedAt` con 6 decimales aunque el evento en Kafka llevara 9. Es la misma
+decisión pendiente (truncar en el origen vs. aceptar precisión variable), con un
+argumento más a favor de truncar **en el origen** a una precisión que el almacén
+conserve exactamente: así el valor del evento y el del `GET` coinciden. Se decide en
+Fase 1.
 
 ### 4.3 CQRS-lite: quién escribe la tabla
 - `transaction-api` **escribe a Kafka y lee de la tabla `transactions`**. Nunca
@@ -357,7 +368,7 @@ Compuerta ejecutable. La fase está terminada cuando **todos** pasan.
 |---|---|---|
 | V1 | Los 5 contenedores alcanzan `healthy`. | `docker compose up --build` → `docker compose ps` muestra `healthy` en `web`, `transaction-api`, `transaction-processor`, `kafka`, `postgres`. |
 | V2 | Un `POST` válido se acepta. | `curl -i -X POST localhost:8080/transactions -H 'content-type: application/json' -d '{"accountId":"acc-1","amount":-42000,"currency":"COP","merchant":"Éxito","occurredAt":"2026-09-02T14:00:00Z"}'` → `202`, cuerpo con `id`. |
-| V3 | El evento se persiste. | En < 5 s, `docker compose exec postgres psql -U mp -d moneypulse -c 'select count(*) from transactions'` incrementa. |
+| V3 | El evento se persiste. | En estado estable, en < 5 s, `docker compose exec postgres psql -U mp -d moneypulse -c 'select count(*) from transactions'` incrementa. *El primer evento tras arrancar el processor (arranque en frío: unión al grupo de consumidores y metadatos de Kafka) tardó 13,4 s en la verificación; en estado estable se midieron 28 ms. Para comprobar V3 se envía antes un evento de calentamiento (ver §8).* |
 | V4 | La API lo lee de vuelta. | `curl localhost:8080/transactions` incluye la transacción creada. |
 | V5 | Tabla vacía no rompe el `GET`. | Con `transactions` vacía, `curl localhost:8080/transactions` → `200 []`. |
 | V6 | El `traceId` atraviesa E2E. | `docker compose logs transaction-api transaction-processor \| grep <traceId>` (el `traceId` de la respuesta/logs del `POST`) → ≥1 línea de **cada** servicio. |
@@ -379,3 +390,54 @@ Compuerta ejecutable. La fase está terminada cuando **todos** pasan.
 | §4.6 Opción A (`@KafkaListener` + `.block()`) en el processor | **elegida** | Fase 2 |
 | §4.7 DTO duplicado (sin módulo compartido) | provisional | Fase 2 (Avro) |
 | §4.8 `fetch` nativo en la web | provisional | Fase 1 |
+| §4.2 Precisión temporal de `receivedAt`/`occurredAt` (nanos en el evento, micros en Postgres) | **abierta** | Fase 1 |
+| §4.2 `amount` como string JSON también en `GET /transactions` | **cerrada** (verificado en Fase 0, ver §8) | — |
+| UI: ingresos y gastos se ven igual en la lista | **abierta** (mejora) | Fase 1 |
+
+---
+
+## 8. Resultado de la verificación
+
+Verificación manual de §6, ejecutada en Windows con PowerShell (comandos en el
+`README.md`) contra el stack de `compose.yaml`. **V1–V12 pasan: la Fase 0 queda
+completada.** Cierre de las tareas 1–16 de §5 (la 16, la guía de ejecución, es el
+`README.md`).
+
+| # | Resultado | Nota |
+|---|---|---|
+| V1 | ✅ | 5 contenedores `healthy` (más `kafka-ui`, tooling). `docker compose ps` solo lista contenedores en ejecución. |
+| V2 | ✅ | `202` con `{"id":"<uuid>"}`. |
+| V3 | ✅ con matiz | Estado estable: **28 ms** (< 5 s). El primer evento tras arrancar el processor tardó **13,4 s** (arranque en frío). Ver observación 1. |
+| V4 | ✅ | El `GET` incluye lo creado. `amount` llega como **string JSON** (observación 3). |
+| V5 | ✅ | `200 []` tras `down -v` + `up`. |
+| V6 | ✅ | El mismo `traceId` aparece en `transaction-api` y `transaction-processor`. |
+| V7 | ✅ | `status: UP` en la API y en el processor (este último, dentro de la red de compose, puerto 8082). El JSON incluye `components`, no solo `{"status":"UP"}`. |
+| V8 | ✅ | La transacción creada en el formulario aparece en la lista; el proxy de la web llega a la API. |
+| V9 | ✅ | `.\gradlew.bat test --rerun-tasks`: `BUILD SUCCESSFUL` en 1 min 25 s, 8 tareas ejecutadas (ninguna `UP-TO-DATE`), 24 tests, 0 fallos. Incluye `TransactionApiIntegrationTest` y `TransactionProcessorIntegrationTest` (Testcontainers con Kafka y Postgres reales). Sin `--rerun-tasks` Gradle puede responder `UP-TO-DATE` sin ejecutar nada. |
+| V10 | ✅ | Cero `.block()` / `.toFuture()` / `JdbcTemplate` en `transaction-api/src/main`. |
+| V11 | ✅ | Diagramas C4 nivel 1 y 2 en `docs/architecture/`, enlazados desde `PROJECT.md`. |
+| V12 | ✅ | Sin `relation "..." does not exist`. Dos líneas benignas contienen «does not exist» (ver observación 5). |
+
+### Observaciones medidas
+
+1. **Latencia API → Postgres.** Primer evento tras arrancar el processor: 13,4 s
+   (unión al grupo de consumidores y metadatos de Kafka, arranque en frío). Estado
+   estable: 28 ms. Consecuencia: V3 se evalúa en estado estable y con un evento de
+   calentamiento previo (§6). El arranque en frío es el costo de crear la sesión del
+   consumidor de Kafka, no de la persistencia; se retoma en Fase 2 (concurrencia del
+   consumidor, §4.6) y Fase 3 (resiliencia al arranque).
+2. **`receivedAt` se persiste con 6 decimales.** `timestamptz` trunca de nanosegundos
+   a microsegundos. Añadido a la deuda de precisión de §4.2; se decide en Fase 1.
+3. **`amount` en `GET /transactions` es un string JSON**, no un número
+   (`TransactionView` usa `@JsonFormat(shape = STRING)`; verificado con
+   `Invoke-RestMethod`: `System.String`, y por un test del controlador). Es lo que
+   exige §4.2, así que no queda decisión abierta de precisión para el dinero. La
+   escala la fija lo que entra (`NUMERIC` sin escala): `"-42000"` y `"-1500.50"`
+   conviven; unificarla es parte del modelo de dominio de Fase 1 (minor units).
+4. **UI.** Ingresos y gastos se ven igual en la lista (`monto moneda`; solo el signo
+   `-` los distingue). Mejora para Fase 1 (profundidad de React / sistema de diseño).
+5. **Falsos positivos al buscar «does not exist» en los logs (V12).** En un arranque
+   en frío aparecen, sin ser errores: `FATAL: database "moneypulse" does not exist`
+   (el healthcheck de Postgres consulta mientras la base se inicializa) y el INFO de
+   Flyway `Schema history table ... does not exist yet`. El patrón correcto para V12
+   es `relation ".*" does not exist`.

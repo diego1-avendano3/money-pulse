@@ -105,9 +105,10 @@ Práctica transversal a todas las fases: **tests unitarios + de integración (Te
 
 ## 8. Estado actual
 
-- **Fase 0: definida** (ver `specs/phase-0.md`). Pendiente: generar el repo ejecutable.
+- **Fase 0: completada y verificada** (ver `specs/phase-0.md`; criterios V1–V12 validados manualmente, resultados en su §8; guía de ejecución en el `README.md`).
+- **Siguiente paso: Fase 0.5** — Paso 0 de AWS: guardrails de costo, cuenta Free plan, Terraform bootstrap y CI. Ver `docs/aws/AWS-PLAN.md` §1 (guardrails) y §12 (roadmap). Antes de empezar hay que escribir `specs/phase-0.5.md`.
 - Fases 1–7: pendientes de detallar como specs; el eje AWS ya está planificado en `docs/aws/AWS-PLAN.md` (oct-2026).
-- **No abrir la cuenta AWS hasta cerrar la Fase 0 local**: el Free plan dura 6 meses desde su creación.
+- **No abrir la cuenta AWS hasta escribir `specs/phase-0.5.md`**: el Free plan dura 6 meses desde su creación y esos meses deben empezar a contar cuando el spec ya está listo (la Fase 0 local ya está cerrada).
 
 ## 9. Enfoque de aprendizaje: Spec-Driven Development
 
