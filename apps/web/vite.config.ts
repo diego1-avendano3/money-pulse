@@ -14,11 +14,17 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
-      // Spec §2 (scope): manifest mínimo only -- no offline/business caching
-      // strategy for Phase 0, that's Phase 1+. generateSW with the default
-      // precache-the-build-output behavior is what makes the app installable
-      // at all; nothing beyond that is configured here.
-      registerType: 'autoUpdate',
+      // selfDestroying: the generated service worker's only job is to
+      // unregister itself and clear its caches on next visit -- it actively
+      // cleans up any copy a browser already installed (found the hard way:
+      // a stale SW kept serving an old cached build with no backend behind
+      // it after `docker compose down`, long after the containers it was
+      // talking to were gone). The manifest below is unaffected -- it still
+      // satisfies "manifest mínimo" (spec §2) -- this only neutralizes the
+      // asset-precaching behavior that made every `web` rebuild a trap
+      // during active Fase 0/1 development. Revisit once a real offline/
+      // business caching story is actually wanted (Fase 1+).
+      selfDestroying: true,
       manifest: {
         name: 'Money Pulse',
         short_name: 'Money Pulse',
