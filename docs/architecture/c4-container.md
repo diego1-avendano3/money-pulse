@@ -6,6 +6,8 @@
 > `compose.yaml`. `kafka-ui` no aparece: es tooling de desarrollo, no una
 > pieza del sistema (mismo criterio que ya usa `compose.yaml` en sus
 > propios comentarios).
+>
+> Para la arquitectura objetivo en AWS, ver [`c4-container-target.md`](c4-container-target.md).
 
 ```mermaid
 flowchart TB

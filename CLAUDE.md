@@ -19,7 +19,7 @@ Kafka, get categorized, and trigger real-time spend alerts. Built to demonstrate
 - web: Vite + React 19 + TypeScript (PWA)
 - Kafka (KRaft), PostgreSQL, Docker Compose `compose.yaml` (local)
 - AWS (Free plan): serverless always-on + ephemeral EKS/MSK labs, DynamoDB + RDS PostgreSQL, Terraform. See `docs/aws/AWS-PLAN.md`.
-- **Cost guardrail (hard rule):** never propose NAT Gateway, interface VPC endpoints, Secrets Manager, customer-managed KMS keys, MSK Serverless, AWS Organizations/IAM Identity Center, or long-running EKS/ALB. Every AWS resource is in Terraform, tagged, and labs end with `destroy`. Check `docs/aws/AWS-PLAN.md` §1.3 before adding any AWS resource.
+- **Cost guardrail (hard rule):** never propose NAT Gateway, interface VPC endpoints, MSK Serverless, AWS Organizations/IAM Identity Center, long-running EKS/ALB, recurring Glue crawlers, CloudTrail data events, Athena queries without a per-query byte-scan limit, or SES outside sandbox mode. Secrets Manager and a customer-managed KMS key are allowed only as "lab con fecha de borrado" (Phase 4, scheduled deletion at lab close, using the minimum waiting period (KMS: 7 days; Secrets Manager: 7 days). — see `docs/aws/AWS-PLAN.md` §1.3) — never a standing resource outside that scope. Every AWS resource is in Terraform, tagged, and labs end with `destroy`. Check `docs/aws/AWS-PLAN.md` §1.3 before adding any AWS resource.
 - Tracing: Micrometer Tracing + OpenTelemetry bridge (enabled from commit 1)
 
 ## Repo layout

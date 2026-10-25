@@ -23,6 +23,13 @@
    lo que no resuelve va a **Amazon Bedrock** (on-demand) — una dependencia externa de verdad, con
    la misma disciplina de resiliencia (circuit breaker, fallback) y control de costo (caché por
    comercio) que el resto del sistema. Ver §3, §7 (UC5) y §14 (A8).
+10. **Seis funcionalidades nuevas de práctica AWS, en el camino crítico:** resumen mensual por
+    email (Fase 6: EventBridge Scheduler → Step Functions → Athena → Bedrock → SES), data lake de
+    transacciones (Fase 6: S3 Parquet + Glue Data Catalog + Athena), comparativa de cómputo en ECS
+    Fargate (Fase 7), cifrado de campo con KMS sobre `accountId` (Fase 4), rotación de la contraseña
+    maestra de RDS con Secrets Manager (Fase 4), auditoría con CloudTrail (Fase 5). Más dos
+    **opcionales** fuera del camino crítico: feature flags con AppConfig (Fase 3) y WAF sobre API
+    Gateway (Fase 4). Detalle en §2.2, §3, §9, §12, §13, §14.
 
 ---
 
@@ -63,10 +70,9 @@
 | **MSK Serverless** | ~USD 0.75/h + por partición | Strimzi en EKS, o MSK *provisioned* `kafka.t3.small` ×2 en lab corto. |
 | ALB / NLB | ~USD 0.0225/h + LCU | Solo en labs. En always-on, API Gateway → Lambda/SQS directo. |
 | IPv4 pública (incluida EC2 y Elastic IP sin asociar) | USD 0.005/h c/u | Ninguna IP pública permanente. |
-| **Secrets Manager** | USD 0.40/secreto/mes | **SSM Parameter Store** SecureString (tier estándar) + RDS IAM auth. |
-| KMS customer-managed key | USD 1/mes c/u | Claves administradas por AWS (`aws/ssm`, `aws/dynamodb`…). |
 | RDS Multi-AZ, RDS Proxy, Performance Insights pagado, IOPS provisionadas | varía | RDS single-AZ `db.t4g.micro`/`db.t3.micro`, 20 GB gp2/gp3, encendido solo en sesiones. |
-| ElastiCache, OpenSearch, WAF (USD 5/ACL + 1/regla), GuardDuty/Config/Inspector después del trial | varía | Mencionarlos en ADRs; WAF como lab de 1 día opcional. |
+| ElastiCache, OpenSearch, GuardDuty/Config/Inspector después del trial | varía | Mencionarlos en ADRs. DynamoDB ya cumple el rol de caché de baja latencia del lab (idempotencia, agregados, caché por comercio de UC5); si se practica Redis/ElastiCache en algún momento, solo dentro del lab EKS (nunca always-on), y descartado por costo salvo sesión corta y `destroy`. |
+| WAF (USD 5/ACL + 1/regla) | ~USD 5–6/mes si queda encendido | *(Opcional, no en camino crítico)* Solo como lab de 1 día sobre API Gateway (reglas managed + rate-based); borrar al cerrar — ver feature 8, §3, §12 Fase 4. |
 | CloudWatch: logs sin retención, métricas custom con alta cardinalidad, Container Insights | USD 0.30/métrica | Retención 3–7 días en *todos* los log groups; ≤ 10 métricas custom; EMF con dimensiones acotadas. |
 | API Gateway **cache** | ~USD 0.02/h+ | CloudFront para estáticos; DynamoDB como read model. |
 | DynamoDB on-demand en una prueba de carga olvidada | por request | Tablas **provisioned 25 RCU/25 WCU** (always free); on-demand solo el día de la prueba. |
@@ -74,6 +80,17 @@
 | Route 53 hosted zone | USD 0.50/mes | Opcional; DNS externo gratuito (p. ej. Cloudflare) para el dominio del lab mTLS. |
 | Cognito M2M (client credentials) | por token request | Para B2B se usa **mTLS + API key**, no client credentials. |
 | **Bedrock Provisioned Throughput** | Cientos de USD/mes (reserva por hora, no por uso) | Solo **on-demand** (pago por token); modelo más económico disponible (Claude Haiku / Amazon Nova Micro); caché por comercio (UC5) antes de pensar en escalar volumen. |
+| **Glue crawlers recurrentes** | USD 0.44/DPU-hora, programados sin fin | Catálogo de Glue **definido en Terraform** (tabla + esquema explícitos para el data lake de transacciones); nunca un crawler en cron. |
+| **CloudTrail data events** | USD por cada 100 000 eventos de S3/Lambda registrados | Solo **management events** (gratis el primer trail); data events apagados. |
+| **Athena sin límite de bytes por consulta** | USD 5/TB escaneado | **Workgroup con `bytes_scanned_cutoff`** en cada consulta (data lake y auditoría CloudTrail). |
+| **SES fuera de modo sandbox** | riesgo de reputación + aprobación de producción | **Modo sandbox** con el destinatario (tu email) verificado; suficiente para el resumen mensual del lab. |
+
+**Lab con fecha de borrado** (costo bajo pero real; se crea con una ventana de borrado programada al cerrar esa fase del lab, en vez de estar prohibido o quedar encendido indefinidamente):
+
+| Recurso | Costo aprox. | Por qué se acepta aquí | Fase / borrado |
+|---|---|---|---|
+| **KMS customer-managed key** | USD 1/mes c/u | Cifrado de campo (envelope encryption) sobre `accountId` — una *customer-managed key* real es el único modo de practicar política de llave de mínimo privilegio y caché de data keys; una clave administrada por AWS (`aws/dynamodb`) no lo permite. | Se crea en Fase 4; se programa su borrado (ventana mínima de 7 días) al cerrar el lab. |
+| **Secrets Manager** | USD 0.40/secreto/mes | Solo la credencial **maestra** de RDS (administración/rotación automática); las apps siguen usando **IAM auth**, nunca leen este secreto. | Se crea en Fase 4; se borra (ventana de 7–30 días) al cerrar el lab. |
 
 ### 1.4 Presupuesto de créditos (6 meses, estimado)
 
@@ -86,9 +103,17 @@
 | Labs MSK (opcional) | 2–3 sesiones × 3 h | 2–5 |
 | ECR, S3, EventBridge custom events, X-Ray > always free, varios | — | 5–10 |
 | Bedrock on-demand (modelo económico, con caché por comercio) | Unos pocos miles de invocaciones a lo largo de Fases 2–6, no por transacción | 2–5 |
-| **Total** | | **≈ 42–75 de 100–200** |
+| Data lake (S3 Parquet + Glue Data Catalog + Athena, con límite de bytes por consulta) | Exportación diaria pequeña + consultas de verificación mensuales | 1–2 |
+| Resumen mensual (Step Functions Standard, Athena, SES sandbox) | Transiciones dentro de always-free; pocos envíos SES | 0–1 |
+| ECS Fargate (comparativa de cómputo, Fase 7) | 1–2 sesiones × ~1–2 h (`transaction-api` + ALB + ECR) | 0.20–0.40 |
+| KMS customer-managed key (cifrado de campo, lab con fecha de borrado) | Fase 4 hasta cierre del lab, prorateado | 2–3 |
+| Secrets Manager (rotación de credencial maestra RDS, lab con fecha de borrado) | Fase 4 hasta cierre del lab, prorateado | 1–2 |
+| CloudTrail (solo management events, primer trail) | Dentro de always free | 0 |
+| **Total** | | **≈ 47–83 de 100–200** |
 
 La holgura es deliberada: si ves que pasas de USD 15/mes en el *Billing dashboard*, para y revisa.
+
+*(Opcionales, fuera del camino crítico y no incluidos en el total: AppConfig —dentro de always-free— y WAF como lab de 1 día, ~USD 1 prorateado si se hace.)*
 
 ### 1.5 Rutina de cierre de cada sesión (5 min)
 
@@ -124,8 +149,13 @@ flowchart LR
     SQSI[(SQS ingest<br/>+ DLQ)]
   end
 
+  subgraph "Categorizacion sin VPC"
+    CATZ[Lambda categorizer<br/>Java 21 sin VPC]
+    SQSL[(SQS ledger<br/>+ DLQ)]
+  end
+
   subgraph "Modo always-on"
-    LW[Lambda ledger-writer<br/>Java 21 + SnapStart]
+    LW[Lambda ledger-writer<br/>Java 21 + SnapStart en VPC]
   end
 
   subgraph "Modo lab (EKS)"
@@ -159,14 +189,16 @@ flowchart LR
   AGG -- mTLS --> RAPI
   RAPI --> AUTHZ
   RAPI -- SendMessage directo --> SQSI
-  SQSI --> LW
+  SQSI --> CATZ
+  CATZ -. comercio sin regla .-> BEDROCK
+  CATZ --> SQSL
+  SQSL --> LW
   SQSI -.lab.-> BR --> K --> PROC
   LW --> RDS
   LW --> DDB
-  LW -. comercio sin regla .-> BEDROCK
   PROC --> RDS
   PROC --> DDB
-  PROC -. comercio sin regla .-> BEDROCK
+  PROC -. comercio sin regla, nodos en subred pública .-> BEDROCK
   HAPI --> READ[Lambda read-api] --> RDS
   READ --> DDB
   HAPI -.lab.-> TAPI
@@ -175,7 +207,9 @@ flowchart LR
   EB --> SNS
 ```
 
-**Cómo leerlo:** la entrada (API Gateway → SQS) siempre está encendida y es gratis; los mensajes esperan en SQS (retención hasta 14 días) aunque el núcleo Kafka esté apagado. Un *feature flag* de Terraform `streaming_core = "lambda" | "kafka"` decide quién drena la cola de ingesta: la Lambda `ledger-writer` (always-on) o el `ingest-bridge` en EKS (lab). Ese patrón —*buffer durable delante de un componente que no siempre está disponible*— es en sí mismo una historia de entrevista. La llamada a **Bedrock** (línea punteada) solo ocurre cuando el motor de reglas de `ledger-core` no reconoce el comercio — es la minoría de los casos, no el camino caliente — y no necesita VPC: es una llamada pública regional firmada con SigV4, igual que cualquier otra llamada del SDK de AWS.
+**Cómo leerlo:** la entrada (API Gateway → SQS) siempre está encendida y es gratis; los mensajes esperan en SQS (retención hasta 14 días) aunque el núcleo Kafka esté apagado. Un *feature flag* de Terraform `streaming_core = "lambda" | "kafka"` decide quién drena la cola de ingesta: la Lambda `ledger-writer` (always-on) o el `ingest-bridge` en EKS (lab). Ese patrón —*buffer durable delante de un componente que no siempre está disponible*— es en sí mismo una historia de entrevista.
+
+En modo always-on, la categorización es **una etapa propia antes del ledger**, no parte de `ledger-writer`: la Lambda `categorizer` drena `SQS ingest`, resuelve el comercio con las reglas de `ledger-core` y, solo si no matchea ninguna, llama a **Bedrock** (línea punteada) — la minoría de los casos, no el camino caliente. El resultado (categorizado o `UNCATEGORIZED`) sigue a `SQS ledger` (+ DLQ), que `ledger-writer` drena para escribir en RDS/DynamoDB. La razón de separar esta etapa: `ledger-writer` vive **dentro de la VPC** (para hablar con RDS) y, sin NAT Gateway (lista negra §1.3), no alcanza el endpoint público de Bedrock; `categorizer` vive **fuera de la VPC**, así que la llamada SigV4 a Bedrock nunca tiene que cruzar la frontera de red. Tres beneficios de esta separación: (1) costo de red cero — no hace falta NAT ni interface endpoint; (2) circuit breaker aislado — si Bedrock se degrada, `categorizer` marca `UNCATEGORIZED` y el ledger sigue sin verse afectado; (3) concurrencia máxima independiente por cola, para acotar cuántas llamadas a Bedrock pueden dispararse a la vez sin limitar la escritura del ledger. En el **lab EKS** esto no aplica: los nodos corren en subred pública con salida a internet, así que el `processor` llama a Bedrock directo (línea punteada inferior).
 
 ### 2.1 Cambios al repositorio
 
@@ -186,12 +220,14 @@ apps/
   ingest-bridge/            NUEVO  SQS → Kafka (Avro/Glue SR), Spring Boot
   web/                      (existe) React PWA
   lambdas/
-    ledger-writer/          NUEVO  SQS → RDS + DynamoDB (Powertools: batch + idempotency)
+    categorizer/            NUEVO  SQS ingest → (reglas ledger-core / Bedrock, sin VPC) → SQS ledger
+    ledger-writer/          NUEVO  SQS ledger → RDS + DynamoDB (Powertools: batch + idempotency)
     read-api/               NUEVO  HTTP API → RDS/DynamoDB
     webhook-authorizer/     NUEVO  Lambda authorizer REQUEST (mTLS)
     alert-evaluator/        NUEVO  DynamoDB Streams → EventBridge
     notifier/               NUEVO  EventBridge → WebSocket / Web Push
     ws-connections/         NUEVO  $connect/$disconnect
+    datalake-exporter/      NUEVO  export diario del ledger a S3 Parquet (particionado year=/month=)
     janitor/                NUEVO  higiene de costos
 libs/
   ledger-core/              NUEVO  dominio puro (sin Spring ni AWS): categorización, reglas, puertos
@@ -201,15 +237,44 @@ libs/
                                    que el feature flag `streaming_core`.
 infra/terraform/
   bootstrap/                estado remoto (S3 + lockfile nativo), rol OIDC de GitHub
-  modules/                  api-rest-mtls, api-http, api-ws, sqs-with-dlq, lambda-java, rds, dynamodb…
+  modules/                  api-rest-mtls, api-http, api-ws, sqs-with-dlq, lambda-java, rds, dynamodb,
+                            kms, secrets-manager-rotation, cloudtrail, data-lake (Glue + Athena
+                            workgroup), monthly-summary (Step Functions + SES)…
   envs/always-on/
-  labs/eks/  labs/msk/
+  labs/eks/  labs/msk/  labs/ecs-fargate/
 load-tests/k6/              escenarios UC1–UC6
 specs/                      phase-1.md … phase-7.md (derivados de este plan)
 docs/aws/                   este plan + ADRs
 ```
 
 **Por qué Lambdas en Java "planas" + Powertools y no Spring en Lambda:** arranque en frío bajo con SnapStart, cero dependencia de que Spring Boot 4 esté soportado por los adaptadores de Lambda, y Powertools for AWS Lambda (Java) trae listos el *batch processing* con fallos parciales, idempotencia sobre DynamoDB, logging estructurado y trazas. Spring Boot sigue siendo el centro en los servicios de contenedor (WebFlux, Kafka, Resilience4j) que es lo que dice el CV.
+
+### 2.2 Arquitectura objetivo — resumen mensual y data lake (Fase 6)
+
+Pipeline separado del diagrama principal (§2) para no sobrecargarlo — estas features no están en el camino caliente de ingesta, corren una vez al día o una vez al mes:
+
+```mermaid
+flowchart LR
+  LEDGER[(RDS PostgreSQL<br/>ledger)]
+  EXPORT[Lambda datalake-exporter<br/>diario]
+  S3DL[(S3 data lake<br/>Parquet year=/month=)]
+  GLUE[Glue Data Catalog<br/>tabla en Terraform]
+  ATHENA[Athena<br/>workgroup con límite de bytes]
+  SCHED[EventBridge Scheduler<br/>día 1, 08:00 America/Bogota]
+  SFN[Step Functions Standard<br/>resumen mensual]
+  BEDROCK2[Amazon Bedrock<br/>redacción del resumen]
+  SES[SES<br/>modo sandbox]
+  USER2([Usuario])
+
+  LEDGER --> EXPORT --> S3DL
+  S3DL --> GLUE --> ATHENA
+  SCHED --> SFN
+  SFN -- consulta agregados --> ATHENA
+  SFN -- solo agregados, sin PII --> BEDROCK2
+  SFN --> SES --> USER2
+```
+
+**Cómo leerlo:** `datalake-exporter` corre una vez al día y nunca toca el camino caliente de ingesta — exporta el ledger del día a S3 en Parquet, particionado por `year=/month=`, con lifecycle de S3 para no acumular costo. Glue Data Catalog define la tabla **en Terraform** (nunca un crawler recurrente — lista negra §1.3), y Athena consulta con un workgroup que limita los bytes escaneados por consulta (guardrail de costo). El día 1 de cada mes, un EventBridge Scheduler dispara una Step Functions Standard que: consulta Athena por los agregados del mes (variación por categoría vs. mes anterior, suscripciones detectadas, cambios de precio), pasa **solo esos agregados — nunca transacciones individuales ni identificadores** — a Bedrock para que redacte el resumen en español con salida estructurada, y envía el resultado por SES (modo sandbox, destinatario verificado) al usuario. Criterio de verificación: un email real recibido con cifras que cuadran contra una consulta SQL directa a RDS, y Athena devolviendo los mismos totales mensuales que RDS.
 
 ---
 
@@ -219,23 +284,31 @@ docs/aws/                   este plan + ADRs
 |---|---|---|---|
 | **IAM** | Roles por función, permisos mínimos, OIDC de GitHub, RDS IAM auth, Pod Identity en EKS | Policy evaluation (explicit deny), resource vs identity policies, roles de servicio, `sts:AssumeRoleWithWebIdentity` | Gratis |
 | **API Gateway (REST/HTTP/WebSocket)** | §4 | Diferencias REST vs HTTP, authorizers, mTLS, throttling en 4 niveles, integraciones directas a servicios AWS | Créditos |
-| **Lambda** | Escrituras, lecturas, authorizer, alertas | Modelo de concurrencia, cold starts/SnapStart, *event source mappings*, fallos parciales en lotes, VPC | Always free |
-| **SQS** | Ingesta, DLQ, FIFO para orden por cuenta | Visibility timeout, long polling, DLQ/redrive, standard vs FIFO, *message group*, 1 MiB máx. | Always free (1 M) |
+| **Lambda** | Escrituras (categorizer, ledger-writer), lecturas, authorizer, alertas, export diario al data lake | Modelo de concurrencia, cold starts/SnapStart, *event source mappings*, fallos parciales en lotes, VPC | Always free |
+| **SQS** | Ingesta, ledger (post-categorización), DLQ, FIFO para orden por cuenta | Visibility timeout, long polling, DLQ/redrive, standard vs FIFO, *message group*, 1 MiB máx. | Always free (1 M) |
 | **SNS** | Fan-out de notificaciones, alarmas | Filter policies, SNS→SQS fan-out, entrega con reintentos | Always free (1 M) |
-| **EventBridge** (bus + Scheduler) | Eventos de dominio, cron de suscripciones y janitor | Reglas por patrón, archive/replay, Pipes, Scheduler vs reglas cron | Créditos (mínimo) |
-| **Step Functions** | Backfill controlado (UC2), sagas | Standard vs Express, Map, manejo de errores declarativo | Always free (4 000 transiciones) |
+| **EventBridge** (bus + Scheduler) | Eventos de dominio, cron de suscripciones y janitor, disparo mensual del resumen (día 1, 08:00 America/Bogota) | Reglas por patrón, archive/replay, Pipes, Scheduler vs reglas cron | Créditos (mínimo) |
+| **Step Functions** | Backfill controlado (UC2), sagas, orquesta el resumen mensual (Athena → Bedrock → SES) | Standard vs Express, Map, manejo de errores declarativo | Always free (4 000 transiciones) |
 | **DynamoDB** (+ Streams, TTL) | Idempotencia, agregados, registros | Diseño por patrones de acceso, single-table, hot partitions, condicionales, transacciones, capacidad | Always free (25 GB, 25/25) |
 | **RDS PostgreSQL** | Ledger | Pools vs `max_connections`, IAM auth, snapshots, Multi-AZ vs read replica (teoría), parameter groups | Créditos |
 | **S3 + CloudFront** | Hosting PWA, truststore mTLS, claim-check | OAC, políticas de bucket, versioning, cache behaviors | Always free (CloudFront) |
+| **S3 data lake + Glue Data Catalog + Athena** | Export diario del ledger en Parquet (`year=/month=`); tabla de Glue en Terraform (sin crawlers); consultas de verificación y del resumen mensual | Particionado, formato columnar vs row-based, workgroup con límite de bytes escaneados, catálogo sin crawler | Créditos (bajo, con guardrail de bytes) |
+| **SES** | Envío del resumen mensual (modo sandbox, destinatario verificado) | Modo sandbox vs producción, verificación de dominio/email, por qué no salir de sandbox en este lab | Always free (sandbox) |
 | **Cognito** | Login usuarios (OIDC + PKCE), scopes | User pool vs identity pool, tokens id/access, resource servers, managed login | Free tier MAU |
 | **ACM** | Certificados TLS del dominio | DNS validation, regional vs us-east-1 para CloudFront | Gratis (públicos) |
-| **SSM Parameter Store** | Configuración y secretos | SecureString + KMS, jerarquías, vs Secrets Manager (rotación) | Gratis (estándar) |
+| **SSM Parameter Store** | Configuración y secretos de las apps | SecureString + KMS, jerarquías, vs Secrets Manager (rotación) | Gratis (estándar) |
+| **KMS** (customer-managed key) | Cifrado de campo (envelope encryption) sobre `accountId`; caché de data keys | Envelope encryption, política de llave de mínimo privilegio, caché de data keys para no llamar KMS por transacción | "Lab con fecha de borrado" — §1.3, ~USD 1/mes |
+| **Secrets Manager** | Credencial **maestra** de RDS (administración/rotación); las apps nunca la leen, siguen con IAM auth | Rotación automática gestionada por RDS, por qué solo para administración | "Lab con fecha de borrado" — §1.3, ~USD 0.40/mes |
+| **CloudTrail** | Auditoría de eventos de gestión (quién cambió security groups / roles IAM), consultable con Athena | Management events vs data events, trail a S3, consultas guardadas | Gratis (primer trail, solo management events) |
 | **CloudWatch + X-Ray (OTel/ADOT)** | Logs, métricas, alarmas, trazas | EMF, Logs Insights, alarmas compuestas, sampling | Always free (cuotas) |
-| **ECR** | Imágenes | Lifecycle policies, escaneo | Créditos (≤ 500 MB) |
+| **ECR** | Imágenes (Lambdas, EKS, ECS Fargate) | Lifecycle policies, escaneo | Créditos (≤ 500 MB) |
 | **EC2 / VPC** | Red de RDS y EKS | Subredes, SG vs NACL, gateway endpoints, por qué no NAT | Créditos |
 | **EKS** (lab) | Kafka + servicios Spring, HPA/KEDA | Pod Identity, AWS LB Controller, managed node groups, upgrades | Créditos, por horas |
+| **ECS Fargate** (lab) | `transaction-api` detrás de ALB, una sesión, comparativa de cómputo vs Lambda/EKS | Task/execution role separados, auto scaling, costo/hora vs cold start vs esfuerzo operativo (ADR) | Créditos, ~USD 0.10/sesión |
 | **MSK** (lab opcional) + **Glue Schema Registry** | Kafka gestionado, Avro | IAM auth para Kafka, compatibilidad de esquemas (BACKWARD), serde de AWS | Por horas / SR sin costo |
-| **Bedrock** (Converse API, on-demand) | Categoriza comercios que el motor de reglas de `ledger-core` no resuelve (fallback de UC5) | On-demand vs Provisioned Throughput, *structured output* (tool-use/JSON), IAM `bedrock:InvokeModel` acotado al ARN del modelo, por qué no necesita VPC endpoint (SigV4 sobre el endpoint regional público) | Créditos (por token; sin tier always-free) |
+| **Bedrock** (Converse API, on-demand) | Categoriza comercios que el motor de reglas de `ledger-core` no resuelve (fallback de UC5); redacta el resumen mensual a partir de agregados | On-demand vs Provisioned Throughput, *structured output* (tool-use/JSON), IAM `bedrock:InvokeModel` acotado al ARN del modelo, por qué la llamada vive fuera de la VPC (Lambda categorizer sin VPC; SigV4 sobre el endpoint regional público; EKS lab: nodos en subred pública) | Créditos (por token; sin tier always-free) |
+| **AppConfig** *(opcional)* | Feature flags `bedrock.enabled`, `streaming_core` leídos vía extensión de Lambda/caché | Despliegue gradual de config, caché local, apagar Bedrock en pruebas de carga sin redesplegar | Always free (cuotas) |
+| **WAF** *(opcional, lab de 1 día)* | Reglas managed + rate-based sobre API Gateway | Managed rule groups, rate-based rules, por qué no dejarlo encendido | ~USD 5–6/mes si queda encendido; `destroy` el mismo día |
 | **Terraform + GitHub Actions** | Todo | Estado remoto, módulos, plan en PR, OIDC | Gratis |
 
 ---
@@ -448,7 +521,7 @@ Cada caso se convierte en un escenario k6 en `load-tests/k6/` y en criterios ver
 ### UC5 — Dependencia lenta: categorización semántica con Bedrock
 - **Situación:** la mayoría de comercios los resuelve el motor de reglas de `ledger-core` en <1 ms. Los que no matchean ninguna regla (comercio nuevo, nombre con ruido del POS) van a **Amazon Bedrock** para categorización semántica (p. ej. `"UBER *EATS BOGOTA"` → `Restaurantes`). Es una dependencia externa real — no simulada — con latencia variable y throttling posible bajo picos.
 - **Riesgo:** sin control, un pico de comercios desconocidos (p. ej. UC3, Black Friday) multiplica las llamadas a Bedrock, dispara su throttling y además el costo (por token, sin tier always-free).
-- **Estrategia:** (1) **caché por nombre de comercio normalizado** en DynamoDB (`MERCHANT_CAT#<nombre-normalizado>`) — un comercio nuevo solo invoca a Bedrock una vez, nunca en duplicados o picos del mismo comercio; (2) Resilience4j (circuit breaker + timeout + bulkhead) en el processor alrededor de la llamada; *fallback* = `category = UNCATEGORIZED` y evento `CategorizationDeferred` que un job de EventBridge Scheduler reintenta luego. En Lambda: timeout corto + DLQ con *redrive* manual.
+- **Estrategia:** (1) **caché por nombre de comercio normalizado** en DynamoDB (`MERCHANT_CAT#<nombre-normalizado>`) — un comercio nuevo solo invoca a Bedrock una vez, nunca en duplicados o picos del mismo comercio; (2) en **modo always-on**, Resilience4j (circuit breaker + timeout + bulkhead) corre dentro de la **Lambda `categorizer`** alrededor de la llamada — esa Lambda vive fuera de la VPC específicamente para poder hacer esta llamada sin NAT (ver §2 "Cómo leerlo"); *fallback* = `category = UNCATEGORIZED`, el mensaje sigue a `SQS ledger` igual (el ledger nunca se bloquea por Bedrock), y un evento `CategorizationDeferred` que un job de EventBridge Scheduler reintenta luego; timeout corto + DLQ con *redrive* manual en la propia Lambda. En **modo lab (EKS)** la misma estrategia de resiliencia corre en el `processor`, que llama a Bedrock directo (nodos en subred pública, sin el problema de VPC).
 - **Criterio:** con Bedrock degradado (throttling/errores inyectados al 50 % en la prueba), la ingesta no cae y el backlog de "por categorizar" se resuelve tras restablecerse. Además: costo medido y documentado en `docs/perf/` (USD por 1 000 comercios nuevos, antes y después de la caché).
 
 ### UC6 — Cierre de mes: detección de suscripciones
@@ -508,7 +581,10 @@ export const options = {
 - **Cifrado:** en reposo por defecto (S3, DynamoDB, RDS, SQS SSE); en tránsito TLS en todos los tramos (§4.4).
 - **OWASP API Top 10:** BOLA (test explícito), validación de esquemas en el borde, límites de tamaño, rate limiting, sin `show-details: always` en health fuera de local.
 - **Datos personales:** las transacciones son sintéticas; aun así, logs sin PII (se registran ids, no nombres de comercio + montos juntos).
-- **Bedrock:** rol IAM con `bedrock:InvokeModel`/`InvokeModelWithResponseStream` acotado al ARN del modelo elegido (nunca `*`); sin llaves de API — todo firmado SigV4 por el SDK, igual que el resto de AWS. El prompt solo recibe el nombre del comercio (dato sintético, no PII) — nunca monto, cuenta ni cualquier otro campo del usuario.
+- **Bedrock:** rol IAM con `bedrock:InvokeModel`/`InvokeModelWithResponseStream` acotado al ARN del modelo elegido (nunca `*`), asignado específicamente a la **Lambda `categorizer`** (ledger-writer no tiene este permiso) y, en el resumen mensual, a la tarea de Step Functions que lo invoca; sin llaves de API — todo firmado SigV4 por el SDK, igual que el resto de AWS. El prompt solo recibe el nombre del comercio o agregados mensuales (datos sintéticos/agregados, nunca PII) — nunca monto individual, cuenta ni cualquier otro campo del usuario.
+- **Cifrado de campo (KMS, Fase 4):** `accountId` se cifra antes de persistir con envelope encryption — una *data key* generada por la customer-managed key (§1.3 "lab con fecha de borrado"), se guarda el ciphertext + la data key cifrada, y una caché de data keys evita llamar a KMS en cada transacción. Política de la key con mínimo privilegio (una sola Lambda puede `kms:Decrypt`/`GenerateDataKey`).
+- **Rotación de credenciales RDS (Secrets Manager, Fase 4):** la contraseña **maestra** de RDS queda gestionada por RDS en Secrets Manager con rotación automática; las apps siguen autenticando con **IAM auth** y nunca leen este secreto — es solo para administración/breakglass. Documentado como ADR (por qué no migrar las apps al secreto).
+- **WAF** *(opcional, Fase 4, lab de 1 día):* reglas managed + rate-based sobre API Gateway; se borra al cerrar la sesión.
 
 ## 10. Observabilidad
 
@@ -517,6 +593,7 @@ export const options = {
 - **Métricas (≤ 10 custom):** `IngestAccepted`, `LedgerPersisted`, `DuplicateIgnored`, `AlertsSent`, `E2ELatencyMs` (EMF, sin dimensiones por usuario).
 - **Alarmas (≤ 10):** edad de mensaje SQS, mensajes en DLQ > 0, errores Lambda, throttles, 5xx API GW, conexiones RDS, billing estimado.
 - **SLO del lab:** 99 % de transacciones persistidas en < 5 s E2E.
+- **Auditoría vía Athena (Fase 5):** los *management events* de CloudTrail (§9) quedan en S3 y son consultables con Athena; consultas guardadas tipo "quién modificó security groups / roles IAM en los últimos 7 días".
 
 ## 11. CI/CD e IaC
 
@@ -539,12 +616,12 @@ Semana 0 = día en que abres la cuenta Free plan (después de terminar Fase 0 lo
 | **0** | antes de la cuenta | Walking skeleton local | Terminar tareas 7–16 del spec. Nada en AWS. | Criterios V1–V12 actuales. |
 | **0.5** | 0 | Paso 0 | §1.2 completo; `infra/terraform/bootstrap` (estado remoto + rol OIDC); `ci.yml`. | Budget activo; `terraform plan` desde Actions sin llaves; acceso denegado fuera de `us-east-1`. |
 | **1** | 1–4 | Slice full-stack + React | S3 + CloudFront (OAC) para la PWA; **Cognito** (PKCE); **HTTP API** con JWT authorizer y scopes; Lambda `read-api`; **RDS** en subred privada + IAM auth; VPC sin NAT. Deploy por pipeline. | Login → lista de transacciones desde RDS vía HTTP API; ruta sin scope → 403; test BOLA verde. |
-| **2** | 5–9 | Núcleo event-driven + concurrencia | `libs/ledger-core` con puerto `MerchantCategorizer` (adaptador `rules` + primera llamada **Bedrock** en happy path, sin resiliencia aún); **SQS ingest + DLQ**; `ledger-writer` (Powertools batch + idempotency); **DynamoDB** single-table + Streams; **EventBridge** bus; **SNS** fan-out de alertas. Local: Avro + **Glue Schema Registry** en Kafka (compose). | UC4 verde (duplicados); evento en RDS + agregado en DynamoDB; esquema Avro rechaza cambio incompatible; comercio no reconocido por reglas vuelve categorizado por Bedrock. |
-| **3** | 10–11 | Resiliencia y disponibilidad | DLQ + redrive, fallos parciales en lote, Resilience4j en processor, `@RetryableTopic`/DLT en Kafka, job de migración Flyway separado, UC5 (circuit breaker + caché por comercio sobre Bedrock). | Mensaje venenoso termina en DLQ sin bloquear el lote; CB abre/cierra en test; UC5 verde con Bedrock degradado; costo por 1 000 comercios nuevos documentado. |
-| **4** | 12–14 | Seguridad | **REST API webhooks**: dominio + ACM + **mTLS** + truststore S3 + authorizer con revocación + usage plans/API keys + request validation + integración directa SQS; **WebSocket API**; SSM; Access Analyzer. | Sin cert → handshake falla; cert revocado → 403; 3 agregadores con cuotas distintas → 429 al exceder. |
-| **5** | 15–16 | Observabilidad | ADOT/X-Ray, dashboards, 10 alarmas, SLO, Logs Insights guardadas. | Un traceId visible en X-Ray desde API GW hasta escritura en DynamoDB. |
-| **6** | 17–19 | Escalabilidad y rendimiento | UC1, UC2 (claim-check + Step Functions), UC3, UC6 en always-on con k6; tuning de ESM/batch/pool. | Criterios de §7 cumplidos y reportados en `docs/perf/`. |
-| **7** | 20–22 | Production-readiness + EKS | **Lab EKS** (Terraform): node group 2× `t3.small`/`t4g.small` en subred pública, AWS LB Controller, Pod Identity, Strimzi Kafka (3 particiones → 6), `ingest-bridge` + processor + `transaction-api` por Helm, **KEDA** sobre lag/SQS, HPA, `lab-eks.yml`. Opcional: **lab MSK** con IAM auth. **Prueba de carga final → N events/s.** | `lab-eks.yml` crea, prueba y destruye sin intervención; reporte k6 con N sostenido y p95 E2E; 0 recursos `env=lab` tras el job. |
+| **2** | 5–9 | Núcleo event-driven + concurrencia | `libs/ledger-core` con puerto `MerchantCategorizer` (adaptador `rules` + primera llamada **Bedrock** en happy path, sin resiliencia aún, dentro de la **Lambda `categorizer`**); **SQS ingest + SQS ledger + DLQ**; `ledger-writer` (Powertools batch + idempotency); **DynamoDB** single-table + Streams; **EventBridge** bus; **SNS** fan-out de alertas. Local: Avro + **Glue Schema Registry** en Kafka (compose). | UC4 verde (duplicados); evento en RDS + agregado en DynamoDB; esquema Avro rechaza cambio incompatible; comercio no reconocido por reglas vuelve categorizado por Bedrock. |
+| **3** | 10–11 | Resiliencia y disponibilidad | DLQ + redrive, fallos parciales en lote, Resilience4j en el `categorizer` (always-on) / processor (lab EKS), `@RetryableTopic`/DLT en Kafka, job de migración Flyway separado, UC5 (circuit breaker + caché por comercio sobre Bedrock). Opcional: **AppConfig** (`bedrock.enabled`, `streaming_core`). | Mensaje venenoso termina en DLQ sin bloquear el lote; CB abre/cierra en test; UC5 verde con Bedrock degradado; costo por 1 000 comercios nuevos documentado. |
+| **4** | 12–14 | Seguridad | **REST API webhooks**: dominio + ACM + **mTLS** + truststore S3 + authorizer con revocación + usage plans/API keys + request validation + integración directa SQS; **WebSocket API**; SSM; Access Analyzer; **cifrado de campo con KMS** sobre `accountId` (data key cacheada); **rotación de credencial maestra de RDS con Secrets Manager** (apps siguen en IAM auth). Opcional: **WAF** (lab de 1 día) sobre API Gateway. | Sin cert → handshake falla; cert revocado → 403; 3 agregadores con cuotas distintas → 429 al exceder; `accountId` ilegible directamente en RDS sin pasar por KMS; rotación de Secrets Manager completa sin downtime de las apps. |
+| **5** | 15–16 | Observabilidad | ADOT/X-Ray, dashboards, 10 alarmas, SLO, Logs Insights guardadas; **CloudTrail** (management events → S3) con consultas guardadas en Athena. | Un traceId visible en X-Ray desde API GW hasta escritura en DynamoDB; consulta Athena sobre CloudTrail devuelve cambios de IAM/SG de los últimos 7 días. |
+| **6** | 17–19 | Escalabilidad y rendimiento | UC1, UC2 (claim-check + Step Functions), UC3, UC6 en always-on con k6; tuning de ESM/batch/pool; **resumen mensual** (EventBridge Scheduler → Step Functions → Athena → Bedrock → SES, §2.2); **data lake de transacciones** (Lambda `datalake-exporter` → S3 Parquet → Glue Data Catalog → Athena). | Criterios de §7 cumplidos y reportados en `docs/perf/`; email real recibido con cifras que cuadran contra RDS; Athena devuelve los mismos totales mensuales que RDS. |
+| **7** | 20–22 | Production-readiness + EKS | **Lab EKS** (Terraform): node group 2× `t3.small`/`t4g.small` en subred pública, AWS LB Controller, Pod Identity, Strimzi Kafka (3 particiones → 6), `ingest-bridge` + processor + `transaction-api` por Helm, **KEDA** sobre lag/SQS, HPA, `lab-eks.yml`. Opcional: **lab MSK** con IAM auth. **Lab ECS Fargate**: `transaction-api` detrás de ALB, imagen desde ECR, task/execution role separados, `destroy` al final; ADR "Lambda vs ECS Fargate vs EKS". **Prueba de carga final → N events/s.** | `lab-eks.yml` crea, prueba y destruye sin intervención; reporte k6 con N sostenido y p95 E2E; 0 recursos `env=lab` tras el job; ADR de cómputo con costo/hora medido, cold start y esfuerzo operativo documentados. |
 
 **Opción B si el Free plan no permite EKS/MSK:** al llegar a la Fase 7, pasa a *Paid plan* (los créditos restantes se conservan) con los guardrails de §1 ya probados, y ejecuta los labs de 3–4 h. Costo esperado: 1–2 USD por sesión, cubierto por créditos.
 
@@ -564,11 +641,16 @@ Semana 0 = día en que abres la cuenta Free plan (después de terminar Fase 0 lo
 | **OpenTelemetry** tracing distribuido | Fase 0 local → Fase 5 en X-Ray. |
 | **AWS EKS** vía **GitHub Actions** CI/CD, unit + **Testcontainers** | Fase 7 (`lab-eks.yml`), CI desde la Fase 0.5. |
 | React (TypeScript) PWA | Fases 1+ (sin cambios). |
-| **IA generativa (AWS Bedrock)** en un flujo productivo, con resiliencia y control de costo explícito | Fase 2: puerto `MerchantCategorizer` + happy path. Fase 3: circuit breaker/fallback (UC5) + caché por comercio, costo medido en USD/1 000 llamadas. |
+| **IA generativa (AWS Bedrock)** en un flujo productivo, con resiliencia y control de costo explícito | Fase 2: puerto `MerchantCategorizer` + happy path. Fase 3: circuit breaker/fallback (UC5) + caché por comercio, costo medido en USD/1 000 llamadas. Fase 6: redacción del resumen mensual a partir de agregados. |
+| **Orquestación serverless (Step Functions)** y **analítica (Athena/Glue)** sobre un data lake propio | Fase 6: resumen mensual (Scheduler → Step Functions → Athena → Bedrock → SES) y data lake de transacciones (S3 Parquet + Glue Data Catalog, sin crawlers). |
+| Email transaccional (**SES**) | Fase 6: envío del resumen mensual (modo sandbox). |
+| Comparativa informada de cómputo: **Lambda vs ECS Fargate vs EKS** | Fase 7: lab ECS Fargate + ADR con costo/hora medido, cold start y esfuerzo operativo. |
+| **Cifrado de campo (KMS)** y **gestión/rotación de secretos (Secrets Manager)** | Fase 4: envelope encryption sobre `accountId` con caché de data keys; rotación automática de la credencial maestra de RDS (apps en IAM auth). |
+| **Auditoría y cumplimiento (CloudTrail + Athena)** | Fase 5: trail de management events, consultas guardadas sobre cambios de IAM/SG. |
 
 **Sugerencia de redacción** (cuando tengas el número; mantén la honestidad: EKS es un entorno efímero de laboratorio):
 
-> Shipping to **AWS** — API Gateway (mTLS for B2B webhooks, Cognito OAuth2/JWT, usage-plan throttling), Lambda, SQS/SNS/EventBridge, RDS PostgreSQL and DynamoDB, **generative AI via Amazon Bedrock** for merchant categorization (circuit-breaker fallback, per-merchant caching for cost control) — plus ephemeral **EKS** load-test environments, all provisioned with Terraform through a GitHub Actions CI/CD pipeline (OIDC, unit and Testcontainers integration tests); React (TypeScript) PWA front end.
+> Shipping to **AWS** — API Gateway (mTLS for B2B webhooks, Cognito OAuth2/JWT, usage-plan throttling), Lambda, SQS/SNS/EventBridge, RDS PostgreSQL and DynamoDB, **generative AI via Amazon Bedrock** for merchant categorization and a Step-Functions-orchestrated monthly summary (circuit-breaker fallback, per-merchant caching for cost control), a Parquet/Glue/Athena data lake with SES delivery, field-level **KMS** encryption and **Secrets Manager**-rotated credentials, **CloudTrail** audit trails queried via Athena — plus ephemeral **EKS** and **ECS Fargate** compute-comparison environments, all provisioned with Terraform through a GitHub Actions CI/CD pipeline (OIDC, unit and Testcontainers integration tests); React (TypeScript) PWA front end.
 
 ---
 
@@ -583,7 +665,9 @@ Semana 0 = día en que abres la cuenta Free plan (después de terminar Fase 0 lo
 | A5 | LocalStack: cambios recientes de licencia de la edición gratuita | Verificar; alternativas: DynamoDB Local + ElasticMQ en Testcontainers | 2 |
 | A6 | Cuota de concurrencia Lambda baja en cuentas nuevas | Diseñar con ella (es un buen limitador); pedir aumento si bloquea UC1 | 0.5 / 6 |
 | A7 | Ventana de 6 meses vs ritmo de aprendizaje de React | Fases 1 y 6 son las de mayor riesgo de retraso; recortar UC3/UC6 antes que seguridad o EKS | continuo |
-| A8 | Modelo de Bedrock y control de costo | On-demand (nunca Provisioned Throughput); Claude Haiku o Amazon Nova Micro (el más barato disponible al decidir); caché por comercio en DynamoDB antes de medir volumen real; cortar la llamada a Bedrock durante las pruebas de carga de k6 (UC1/UC3) salvo que el escenario sea explícitamente sobre UC5 | 2 |
+| A8 | Modelo de Bedrock y control de costo (la ubicación de red ya está resuelta: Lambda `categorizer` sin VPC, §2) | On-demand (nunca Provisioned Throughput); Claude Haiku o Amazon Nova Micro (el más barato disponible al decidir); caché por comercio en DynamoDB antes de medir volumen real; cortar la llamada a Bedrock durante las pruebas de carga de k6 (UC1/UC3) salvo que el escenario sea explícitamente sobre UC5 | 2 |
+| A9 | Ventana de borrado de KMS CMK y de la rotación en Secrets Manager (§1.3 "lab con fecha de borrado") | Programar el borrado (KMS ≥7 días, Secrets Manager 7–30 días) como parte del cierre de la Fase 4/del lab, no dejarlos indefinidos | 4 |
+| A10 | Cuántas sesiones de ECS Fargate y cuándo correrlas | 1 sesión de 1–2 h es suficiente para medir costo/hora, cold start y esfuerzo operativo del ADR; repetir solo si el número sale ruidoso | 7 |
 
 ## 15. Fuentes
 

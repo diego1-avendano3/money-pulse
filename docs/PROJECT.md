@@ -45,6 +45,35 @@ Por qué el caso justifica cada tecnología:
   Justifica practicar un patrón que hoy pesa en el mercado (IA generativa en producción) con los
   mismos controles que ya exige el resto del sistema: resiliencia (circuit breaker + fallback,
   UC5), caché para controlar costo, y seguridad (IAM de mínimo privilegio, sin API keys).
+- **Resumen mensual inteligente por email**: el usuario recibe, sin pedirlo, un email el día 1 de
+  cada mes con una lectura en español de su propio gasto (variación por categoría, suscripciones
+  detectadas, cambios de precio) — el mismo valor diario de la alerta en tiempo real, pero a escala
+  mensual y redactado, no solo una cifra. Bedrock solo ve agregados, nunca transacciones
+  individuales ni identificadores. Detalle en `docs/aws/AWS-PLAN.md` §2.2, Fase 6.
+- **Data lake de transacciones**: separar el *ledger* transaccional (RDS, optimizado para
+  escritura/consistencia) de la analítica histórica (S3/Parquet/Athena, optimizada para consultas
+  de rango) es una decisión de arquitectura real, no un ejercicio — es lo que alimenta el resumen
+  mensual sin pegarle a RDS con consultas analíticas. Fase 6.
+- **Comparativa de cómputo (ECS Fargate)**: desplegar el mismo `transaction-api` en Lambda, EKS y
+  ECS Fargate y medir costo/hora, cold start y esfuerzo operativo convierte "cuál cómputo usar" en
+  una decisión informada por datos propios, no por intuición — exactamente el tipo de ADR que se
+  espera de un Senior/Solution Architect. Fase 7.
+- **Cifrado de campo con KMS**: `accountId` es el dato más sensible del usuario en este dominio;
+  cifrarlo con *envelope encryption* (customer-managed key, caché de data keys) practica un patrón
+  real de protección de datos financieros, más allá del cifrado en reposo "gratis" que ya da AWS
+  por defecto. Fase 4.
+- **Rotación de credenciales (Secrets Manager)**: practicar rotación automática de la contraseña
+  **maestra** de RDS sin tocar las apps (que siguen en IAM auth) es higiene operativa real —
+  separa "credencial de administración" de "credencial de aplicación", una distinción que
+  cualquier auditoría de seguridad va a preguntar. Fase 4.
+- **Auditoría (CloudTrail)**: un trail de *management events* consultable por Athena es la
+  respuesta a "¿quién cambió este security group?" — trazabilidad no solo de las transacciones
+  (ya cubierta por OpenTelemetry) sino de los cambios a la infraestructura misma. Fase 5.
+
+Dos funcionalidades opcionales, fuera del camino crítico, para practicar servicios adicionales sin
+comprometer el cronograma: **feature flags con AppConfig** (apagar Bedrock en pruebas de carga sin
+redesplegar, Fase 3) y **WAF sobre API Gateway** (lab de un día, Fase 4). Detalle de las ocho en
+`docs/aws/AWS-PLAN.md` §3, §9, §12, §13, §14.
 
 Scoping práctico: **no se requieren convenios bancarios**. El stream se simula con un generador sintético de transacciones que imita los webhooks del agregador.
 
@@ -65,7 +94,8 @@ User (mobile)
 Un único `traceId` (W3C `traceparent`) viaja por HTTP → header Kafka → logs del consumidor. Detalle completo en `specs/phase-0.md`.
 
 Diagramas C4: [Contexto (nivel 1)](architecture/c4-context.md) ·
-[Contenedores (nivel 2)](architecture/c4-container.md).
+[Contenedores (nivel 2)](architecture/c4-container.md) ·
+[Contenedores objetivo en AWS](architecture/c4-container-target.md).
 
 ## 6. Stack y decisiones (defaults)
 
@@ -84,8 +114,13 @@ Diagramas C4: [Contexto (nivel 1)](architecture/c4-context.md) ·
 - **IaC:** Terraform; CI/CD con GitHub Actions + OIDC.
 - **IA generativa:** AWS Bedrock (on-demand, nunca Provisioned Throughput), modelo económico
   (Claude Haiku o Amazon Nova Micro), para categorizar comercios que el motor de reglas de
-  `libs/ledger-core` no resuelve. Detalle, resiliencia (UC5) y control de costo en
-  `docs/aws/AWS-PLAN.md` §3, §7 y §14.
+  `libs/ledger-core` no resuelve y para redactar el resumen mensual. Detalle, resiliencia (UC5) y
+  control de costo en `docs/aws/AWS-PLAN.md` §3, §7 y §14.
+- **Analítica y mensajería adicional:** Step Functions + Athena/Glue Data Catalog + SES para el
+  resumen mensual y el data lake de transacciones (Fase 6); ECS Fargate como comparativa de
+  cómputo (Fase 7); KMS (envelope encryption) y Secrets Manager (rotación de credencial maestra
+  de RDS) en Fase 4; CloudTrail en Fase 5. Dos opcionales fuera del camino crítico: AppConfig
+  (Fase 3) y WAF (Fase 4). Detalle en `docs/aws/AWS-PLAN.md` §2.2, §3, §9, §12.
 
 ## 7. Roadmap por fases (las *-ilities* como columna vertebral)
 
@@ -96,10 +131,19 @@ Diagramas C4: [Contexto (nivel 1)](architecture/c4-context.md) ·
 | 1 | Slice full-stack + profundidad de React | rendimiento (frontend), usabilidad | S3/CloudFront, Cognito, HTTP API + JWT, Lambda, RDS |
 | 2 | Núcleo event-driven + concurrencia | concurrencia, resiliencia (base) | SQS, DynamoDB, EventBridge, SNS, Glue Schema Registry, **Bedrock (categorización, happy path)** |
 | 3 | Resiliencia y disponibilidad (Resilience4j) | resiliencia, disponibilidad | DLQ/redrive, fallos parciales, DLT Kafka, **circuit breaker + caché sobre Bedrock (UC5)** |
-| 4 | Seguridad (OAuth2/OIDC, secretos, OWASP) | seguridad | REST API + mTLS, authorizer, usage plans, WebSocket, SSM |
-| 5 | Observabilidad y trazabilidad (OpenTelemetry) | trazabilidad, observabilidad | ADOT, X-Ray, CloudWatch |
-| 6 | Escalabilidad y rendimiento (k6, picos UC1–UC6) | escalabilidad, rendimiento | Load leveling, throttling, DynamoDB sharding, Step Functions |
-| 7 | Production-readiness: CI/CD + Kubernetes (EKS) | automatización, deployability | Lab EKS (+MSK opcional), KEDA, k6 → N events/s |
+| 4 | Seguridad (OAuth2/OIDC, secretos, OWASP) | seguridad | REST API + mTLS, authorizer, usage plans, WebSocket, SSM, **KMS (cifrado de `accountId`)**, **Secrets Manager (rotación credencial maestra RDS)**; opcional: **WAF** |
+| 5 | Observabilidad y trazabilidad (OpenTelemetry) | trazabilidad, observabilidad | ADOT, X-Ray, CloudWatch, **CloudTrail + Athena (auditoría)** |
+| 6 | Escalabilidad y rendimiento (k6, picos UC1–UC6) | escalabilidad, rendimiento | Load leveling, throttling, DynamoDB sharding, **resumen mensual (Step Functions → Athena → Bedrock → SES)**, **data lake (S3 Parquet + Glue + Athena)** |
+| 7 | Production-readiness: CI/CD + Kubernetes (EKS) | automatización, deployability | Lab EKS (+MSK opcional), KEDA, k6 → N events/s, **lab ECS Fargate (comparativa de cómputo + ADR)** |
+
+Opcionales fuera del camino crítico, no en esta tabla por fase propia: **AppConfig** (feature
+flags, encaja en Fase 3) y **WAF** (lab de un día, encaja en Fase 4). Ver
+`docs/aws/AWS-PLAN.md` §3, §12.
+
+Nota sobre caché: este roadmap no incluye Redis/ElastiCache como pieza del producto — DynamoDB ya
+cumple ese rol (idempotencia, agregados en tiempo real, caché por comercio de Bedrock). Si en
+algún momento se practica Redis, es dentro del lab EKS únicamente (nunca *always-on*); ElastiCache
+queda descartado por costo (ver `docs/aws/AWS-PLAN.md` §1.3).
 
 Práctica transversal a todas las fases: **tests unitarios + de integración (Testcontainers)** desde el inicio.
 
@@ -136,6 +180,11 @@ Puntos deliberadamente sin cerrar, para revisarlos al retomar:
 7. **Decisiones abiertas del eje AWS**: ver `docs/aws/AWS-PLAN.md` §14 (EKS/MSK en Free plan, dominio para mTLS, Glue SR vs Apicurio, librerías con Boot 4).
 8. **Modelo de Bedrock y control de costo**: ver `docs/aws/AWS-PLAN.md` §14 (A8) — on-demand vs
    Provisioned Throughput, qué modelo, estrategia de caché por comercio.
+9. **Ventana de borrado de KMS/Secrets Manager**: ver `docs/aws/AWS-PLAN.md` §14 (A9) — cuándo
+   programar el borrado de la customer-managed key y de la rotación de Secrets Manager al cerrar
+   la Fase 4 / el lab.
+10. **Sesiones del lab ECS Fargate**: ver `docs/aws/AWS-PLAN.md` §14 (A10) — cuántas sesiones
+    hacen falta para el ADR de comparativa de cómputo.
 
 ## 11. Glosario
 

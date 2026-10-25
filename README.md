@@ -10,6 +10,32 @@ qualities (scalability, resilience, security, observability, concurrency).
 runs the full stack (web → API → Kafka → processor → Postgres → API) end to end.
 Next: Phase 0.5 (AWS guardrails, see [`docs/aws/AWS-PLAN.md`](docs/aws/AWS-PLAN.md)).
 
+## Hacia dónde va
+
+Hoy este repo es un walking skeleton local. El destino es un sistema event-driven
+en AWS que reacciona en tiempo real a cada transacción — categorización con IA
+generativa (Bedrock), seguridad real (mTLS, OAuth2/OIDC, cifrado de campo),
+un data lake propio con resumen mensual por email, y una comparativa medida de
+cómputo (Lambda / ECS Fargate / EKS) — todo bajo guardrails de costo estrictos
+(capa gratuita, `terraform destroy` en cada lab).
+
+| Fase | Foco | Servicios AWS clave |
+|---|---|---|
+| 0 | Walking skeleton (este repo, hoy) | — (solo local) |
+| 0.5 | Guardrails de costo | Free plan, Budgets, Terraform bootstrap, OIDC |
+| 1 | Slice full-stack + React | S3/CloudFront, Cognito, API Gateway HTTP, Lambda, RDS |
+| 2 | Event-driven + concurrencia | SQS, DynamoDB, EventBridge, SNS, **Bedrock** (categorización) |
+| 3 | Resiliencia | DLQ/redrive, circuit breaker sobre Bedrock (UC5) |
+| 4 | Seguridad | mTLS, usage plans, WebSocket, **KMS**, **Secrets Manager** |
+| 5 | Observabilidad | X-Ray, CloudWatch, **CloudTrail** |
+| 6 | Escalabilidad + práctica analítica | k6, **resumen mensual** (Step Functions/Athena/**Bedrock**/SES), data lake |
+| 7 | Production-readiness | Lab EKS, **lab ECS Fargate** (comparativa de cómputo), k6 → N events/s |
+
+Detalle completo: [`docs/PROJECT.md`](docs/PROJECT.md) (producto y roadmap),
+[`docs/aws/AWS-PLAN.md`](docs/aws/AWS-PLAN.md) (plan AWS y guardrails de costo),
+y los diagramas C4: [contexto objetivo](docs/architecture/c4-context.md) ·
+[contenedores objetivo en AWS](docs/architecture/c4-container-target.md).
+
 ## Where things are
 
 | Path | What |
@@ -20,7 +46,7 @@ Next: Phase 0.5 (AWS guardrails, see [`docs/aws/AWS-PLAN.md`](docs/aws/AWS-PLAN.
 | `apps/transaction-api/` | Spring WebFlux service (produces to Kafka, reads DB) |
 | `apps/transaction-processor/` | Spring Kafka consumer (persists to DB) |
 | `apps/web/` | React + TypeScript PWA |
-| [`docs/architecture/`](docs/architecture/c4-context.md) | C4 diagrams ([context](docs/architecture/c4-context.md), [containers](docs/architecture/c4-container.md)) |
+| [`docs/architecture/`](docs/architecture/c4-context.md) | C4 diagrams ([context](docs/architecture/c4-context.md), [containers](docs/architecture/c4-container.md), [target containers in AWS](docs/architecture/c4-container-target.md)) |
 
 ## Run it
 
