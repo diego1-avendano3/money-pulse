@@ -10,31 +10,31 @@ qualities (scalability, resilience, security, observability, concurrency).
 runs the full stack (web → API → Kafka → processor → Postgres → API) end to end.
 Next: Phase 0.5 (AWS guardrails, see [`docs/aws/AWS-PLAN.md`](docs/aws/AWS-PLAN.md)).
 
-## Hacia dónde va
+## Where it's heading
 
-Hoy este repo es un walking skeleton local. El destino es un sistema event-driven
-en AWS que reacciona en tiempo real a cada transacción — categorización con IA
-generativa (Bedrock), seguridad real (mTLS, OAuth2/OIDC, cifrado de campo),
-un data lake propio con resumen mensual por email, y una comparativa medida de
-cómputo (Lambda / ECS Fargate / EKS) — todo bajo guardrails de costo estrictos
-(capa gratuita, `terraform destroy` en cada lab).
+Today this repo is a local walking skeleton. The destination is an event-driven
+system on AWS that reacts in real time to every transaction — categorization
+with generative AI (Bedrock), real security (mTLS, OAuth2/OIDC, field-level
+encryption), its own data lake with a monthly email summary, and a measured
+compute comparison (Lambda / ECS Fargate / EKS) — all under strict cost
+guardrails (free tier, `terraform destroy` on every lab).
 
-| Fase | Foco | Servicios AWS clave |
+| Phase | Focus | Key AWS services |
 |---|---|---|
-| 0 | Walking skeleton (este repo, hoy) | — (solo local) |
-| 0.5 | Guardrails de costo | Free plan, Budgets, Terraform bootstrap, OIDC |
-| 1 | Slice full-stack + React | S3/CloudFront, Cognito, API Gateway HTTP, Lambda, RDS |
-| 2 | Event-driven + concurrencia | SQS, DynamoDB, EventBridge, SNS, **Bedrock** (categorización) |
-| 3 | Resiliencia | DLQ/redrive, circuit breaker sobre Bedrock (UC5) |
-| 4 | Seguridad | mTLS, usage plans, WebSocket, **KMS**, **Secrets Manager** |
-| 5 | Observabilidad | X-Ray, CloudWatch, **CloudTrail** |
-| 6 | Escalabilidad + práctica analítica | k6, **resumen mensual** (Step Functions/Athena/**Bedrock**/SES), data lake |
-| 7 | Production-readiness | Lab EKS, **lab ECS Fargate** (comparativa de cómputo), k6 → N events/s |
+| 0 | Walking skeleton (this repo, today) | — (local only) |
+| 0.5 | Cost guardrails | Free plan, Budgets, Terraform bootstrap, OIDC |
+| 1 | Full-stack slice + React | S3/CloudFront, Cognito, API Gateway HTTP, Lambda, RDS |
+| 2 | Event-driven + concurrency | SQS, DynamoDB, EventBridge, SNS, **Bedrock** (categorization) |
+| 3 | Resilience | DLQ/redrive, circuit breaker on Bedrock (UC5) |
+| 4 | Security | mTLS, usage plans, WebSocket, **KMS**, **Secrets Manager** |
+| 5 | Observability | X-Ray, CloudWatch, **CloudTrail** |
+| 6 | Scalability + analytics practice | k6, **monthly summary** (Step Functions/Athena/**Bedrock**/SES), data lake |
+| 7 | Production-readiness | EKS lab, **ECS Fargate lab** (compute comparison), k6 → N events/s |
 
-Detalle completo: [`docs/PROJECT.md`](docs/PROJECT.md) (producto y roadmap),
-[`docs/aws/AWS-PLAN.md`](docs/aws/AWS-PLAN.md) (plan AWS y guardrails de costo),
-y los diagramas C4: [contexto objetivo](docs/architecture/c4-context.md) ·
-[contenedores objetivo en AWS](docs/architecture/c4-container-target.md).
+Full detail: [`docs/PROJECT.md`](docs/PROJECT.md) (product and roadmap),
+[`docs/aws/AWS-PLAN.md`](docs/aws/AWS-PLAN.md) (AWS plan and cost guardrails),
+and the C4 diagrams: [target context](docs/architecture/c4-context.md) ·
+[target containers in AWS](docs/architecture/c4-container-target.md).
 
 ## Where things are
 
@@ -47,6 +47,8 @@ y los diagramas C4: [contexto objetivo](docs/architecture/c4-context.md) ·
 | `apps/transaction-processor/` | Spring Kafka consumer (persists to DB) |
 | `apps/web/` | React + TypeScript PWA |
 | [`docs/architecture/`](docs/architecture/c4-context.md) | C4 diagrams ([context](docs/architecture/c4-context.md), [containers](docs/architecture/c4-container.md), [target containers in AWS](docs/architecture/c4-container-target.md)) |
+
+Internal design docs (`PROJECT.md`, `specs/`, the AWS plan, C4 diagrams) are written in Spanish.
 
 ## Run it
 
@@ -75,18 +77,18 @@ directly (see the checklist below).
 Every step below is a criterion from the phase-0 spec. They were run, in
 PowerShell on Windows, against this exact stack. Run them in order.
 
-### V1 — Los 5 contenedores alcanzan `healthy`
+### V1 — All 5 containers reach `healthy`
 
 ```powershell
 docker compose ps
 ```
 
-Esperado: `healthy` en `web`, `transaction-api`, `transaction-processor`,
-`kafka` y `postgres`. Ojo: `docker compose ps` **solo lista contenedores en
-ejecución**; uno que se cayó simplemente no aparece (usa `docker compose ps -a`
-para verlo).
+Expected: `healthy` for `web`, `transaction-api`, `transaction-processor`,
+`kafka`, and `postgres`. Note: `docker compose ps` **only lists running
+containers**; one that crashed simply won't show up (use `docker compose ps -a`
+to see it).
 
-### V2 — Un `POST` válido se acepta
+### V2 — A valid `POST` is accepted
 
 ```powershell
 $body = '{"accountId":"acc-1","amount":"-42000","currency":"COP","merchant":"Exito","occurredAt":"2026-09-02T14:00:00Z"}'
@@ -95,17 +97,17 @@ $r.StatusCode   # 202
 $r.Content      # {"id":"<uuid>"}
 ```
 
-Se usa `Invoke-WebRequest` (no `Invoke-RestMethod`) porque este último no
-expone el código de estado. `amount` va como **string** (contrato §4.2).
+`Invoke-WebRequest` is used (not `Invoke-RestMethod`) because the latter
+doesn't expose the status code. `amount` goes as a **string** (contract §4.2).
 
-### V3 — El evento se persiste
+### V3 — The event is persisted
 
 ```powershell
 docker compose exec postgres psql -U mp -d moneypulse -c 'select count(*) from transactions'
 ```
 
-Esperado: en estado estable, el conteo incrementa en < 5 s tras un `POST`. Para
-medirlo:
+Expected: in steady state, the count increases in < 5 s after a `POST`. To
+measure it:
 
 ```powershell
 $antes = [int](docker compose exec -T postgres psql -U mp -d moneypulse -t -A -c 'select count(*) from transactions')
@@ -115,31 +117,30 @@ do { $n = [int](docker compose exec -T postgres psql -U mp -d moneypulse -t -A -
 "count=$n (antes: $antes) en $([int]$sw.Elapsed.TotalMilliseconds) ms"
 ```
 
-(el tiempo incluye el costo de cada `docker compose exec`, ~0,5–1 s: sirve para
-comprobar el umbral de 5 s, no para medir los 28 ms de estado estable).
-**El primer evento tras arrancar el
-processor es más lento** (ver «Comportamiento observado»): envía un evento de
-calentamiento antes de dar V3 por fallida.
+(the timing includes the cost of each `docker compose exec`, ~0.5–1 s: useful
+for checking the 5 s threshold, not for measuring the 28 ms steady-state
+figure). **The first event after the processor starts up is slower** (see
+"Observed behavior"): send a warm-up event before marking V3 as failed.
 
-### V4 — La API lo lee de vuelta
+### V4 — The API reads it back
 
 ```powershell
 Invoke-RestMethod http://localhost:8080/transactions | Select-Object -First 1 | ConvertTo-Json
 ```
 
-Esperado: la lista incluye la transacción creada, con `amount` como string.
+Expected: the list includes the created transaction, with `amount` as a string.
 
-### V5 — Tabla vacía no rompe el `GET`
+### V5 — An empty table doesn't break `GET`
 
-Solo se puede comprobar con la base vacía, es decir, justo después de un
-arranque en frío (ver V12):
+This can only be checked with an empty database, i.e. right after a cold
+start (see V12):
 
 ```powershell
 $g = Invoke-WebRequest -UseBasicParsing http://localhost:8080/transactions
 "$($g.StatusCode) $($g.Content)"   # 200 []
 ```
 
-### V6 — El `traceId` atraviesa E2E
+### V6 — The `traceId` travels end to end
 
 ```powershell
 $id = (Invoke-RestMethod -Method Post -Uri http://localhost:8080/transactions -ContentType 'application/json' -Body $body).id
@@ -149,113 +150,113 @@ $traceId = [regex]::Match($linea.Line, '\[transaction-api,([0-9a-f]{32}),').Grou
 docker compose logs transaction-api transaction-processor | Select-String $traceId
 ```
 
-Esperado: ≥1 línea de **cada** servicio con el mismo `traceId`.
+Expected: ≥1 line from **each** service with the same `traceId`.
 
-### V7 — Salud verde
+### V7 — Green health
 
 ```powershell
 (Invoke-RestMethod http://localhost:8080/actuator/health).status
 (docker compose exec -T transaction-processor curl -s http://localhost:8082/actuator/health | ConvertFrom-Json).status
 ```
 
-Esperado: `UP` en ambos. El processor no publica puerto al host, por eso se
-consulta dentro de la red de compose. (El JSON completo trae además
-`components`; lo que importa es `status`.)
+Expected: `UP` for both. The processor doesn't publish a port to the host,
+which is why it's queried from inside the compose network. (The full JSON also
+includes `components`; what matters here is `status`.)
 
-### V8 — La web cierra el lazo
+### V8 — The web app closes the loop
 
-En http://localhost:5173, crear una transacción con el formulario.
+At http://localhost:5173, create a transaction using the form.
 
-Esperado: aparece en la lista sin recargar la página (el hook hace poll cada
-3 s). Para comprobar que el proxy de la web llega a la API:
+Expected: it appears in the list without reloading the page (the hook polls
+every 3 s). To check that the web app's proxy reaches the API:
 
 ```powershell
 (Invoke-RestMethod http://localhost:5173/transactions).Count
 ```
 
-### V9 — Tests verdes con infra real
+### V9 — Green tests with real infra
 
 ```powershell
 .\gradlew.bat test --rerun-tasks
 ```
 
-Requiere Docker (Testcontainers levanta Kafka y Postgres reales). **Usa
-`--rerun-tasks`**: sin él Gradle puede responder `UP-TO-DATE` sin ejecutar
-nada y el `BUILD SUCCESSFUL` no prueba nada. Esperado: `BUILD SUCCESSFUL`
-con los tests de integración de ambos módulos.
+Requires Docker (Testcontainers spins up real Kafka and Postgres). **Use
+`--rerun-tasks`**: without it, Gradle can report `UP-TO-DATE` without running
+anything, and `BUILD SUCCESSFUL` proves nothing. Expected: `BUILD SUCCESSFUL`
+with the integration tests of both modules passing.
 
-### V10 — Sin bloqueo en el path de la API
+### V10 — No blocking in the API's path
 
 ```powershell
 Get-ChildItem apps\transaction-api\src\main -Recurse -Filter *.java | Select-String -Pattern '\.block\(\)|\.toFuture\(\)|JdbcTemplate'
 ```
 
-Esperado: sin resultados.
+Expected: no results.
 
-### V11 — Arquitectura documentada
+### V11 — Architecture documented
 
-Abrir [`docs/architecture/c4-context.md`](docs/architecture/c4-context.md) y
-[`c4-container.md`](docs/architecture/c4-container.md): diagramas C4 nivel 1 y
-2, enlazados desde `docs/PROJECT.md`.
+Open [`docs/architecture/c4-context.md`](docs/architecture/c4-context.md) and
+[`c4-container.md`](docs/architecture/c4-container.md): C4 level 1 and 2
+diagrams, linked from `docs/PROJECT.md`.
 
-### V12 — Orden de arranque correcto (arranque en frío)
+### V12 — Correct startup order (cold start)
 
 ```powershell
-docker compose down -v          # borra también los volúmenes: los datos se pierden
+docker compose down -v          # also deletes volumes: data is lost
 docker compose up --build -d
-docker compose ps               # espera a que los servicios estén healthy
+docker compose ps               # wait until services are healthy
 docker compose logs | Select-String 'relation ".*" does not exist'
 ```
 
-Esperado: ninguna coincidencia. Busca ese patrón y no el genérico
-`does not exist`: en un arranque en frío aparecen dos líneas benignas que lo
-contienen — `FATAL: database "moneypulse" does not exist` (el healthcheck de
-Postgres pregunta mientras la base se inicializa) y el INFO de Flyway
-`Schema history table ... does not exist yet` (primera migración).
+Expected: no matches. Search for that exact pattern, not the generic
+`does not exist`: on a cold start, two benign lines contain it —
+`FATAL: database "moneypulse" does not exist` (Postgres's healthcheck probing
+while the database initializes) and Flyway's INFO line
+`Schema history table ... does not exist yet` (first migration).
 
-## Comportamiento observado
+## Observed behavior
 
-Mediciones y hallazgos de la verificación manual de la Fase 0 (detalle en
+Measurements and findings from Phase 0's manual verification (detail in
 [`specs/phase-0.md`](specs/phase-0.md) §8):
 
-- **Latencia API → Postgres.** El primer evento tras arrancar el processor
-  tardó **13,4 s** (arranque en frío: unión al grupo de consumidores y
-  metadatos de Kafka). En estado estable, **28 ms**.
-- **`receivedAt` pierde precisión al persistir.** El evento sale con
-  nanosegundos (9 decimales); PostgreSQL `timestamptz` guarda microsegundos,
-  así que el `GET` devuelve 6. Deuda abierta, se decide en Fase 1.
-- **`amount` en el `GET` es un string JSON**, no un número (p. ej.
-  `"-1500.50"`), igual que en el evento. Cumple §4.2; no hay decisión abierta.
-- **UI:** ingresos y gastos se ven igual en la lista (`monto moneda`, sin
-  distinción visual más allá del signo). Mejora para Fase 1.
+- **API → Postgres latency.** The first event after the processor started up
+  took **13.4 s** (cold start: consumer group join and Kafka metadata). In
+  steady state, **28 ms**.
+- **`receivedAt` loses precision on persist.** The event goes out with
+  nanoseconds (9 decimal places); PostgreSQL `timestamptz` stores
+  microseconds, so `GET` returns 6. Open debt, to be decided in Phase 1.
+- **`amount` in `GET` is a JSON string**, not a number (e.g.
+  `"-1500.50"`), same as in the event. Complies with §4.2; no open decision.
+- **UI:** income and expenses look the same in the list (`amount currency`,
+  with no visual distinction beyond the sign). Improvement for Phase 1.
 
-## Solución de problemas
+## Troubleshooting
 
-**Docker Desktop sin DNS** — `docker compose up --build` falla con
-`lookup auth.docker.io: no such host` (o `dial tcp: lookup registry-1.docker.io`):
-es un problema de red de la VM de Docker Desktop, no del proyecto. Ejecuta
-`wsl --shutdown` y vuelve a abrir Docker Desktop.
+**Docker Desktop with no DNS** — `docker compose up --build` fails with
+`lookup auth.docker.io: no such host` (or `dial tcp: lookup registry-1.docker.io`):
+this is a networking issue in the Docker Desktop VM, not the project. Run
+`wsl --shutdown` and reopen Docker Desktop.
 
-**El engine de Docker se cae por memoria** — libera RAM:
+**Docker's engine crashes from memory pressure** — free up RAM:
 
 ```powershell
-.\gradlew.bat --stop              # daemons de Gradle viejos que siguen ocupando memoria
-docker compose stop kafka-ui      # tooling de dev, no lo necesita el skeleton
+.\gradlew.bat --stop              # old Gradle daemons still holding memory
+docker compose stop kafka-ui      # dev tooling, not needed by the skeleton
 ```
 
-**«Un servicio desapareció de `docker compose ps`»** — `docker compose ps`
-solo lista contenedores **en ejecución**. Si no aparece, está detenido o se
-cayó: `docker compose ps -a` y `docker compose logs <servicio>`.
+**"A service disappeared from `docker compose ps`"** — `docker compose ps`
+only lists **running** containers. If it's not there, it's stopped or
+crashed: `docker compose ps -a` and `docker compose logs <service>`.
 
-## Loop de desarrollo
+## Development loop
 
-Para iterar sin reconstruir contenedores cada vez, ver los comandos en
-[`CLAUDE.md`](CLAUDE.md#commands) (`./gradlew test` por módulo,
+To iterate without rebuilding containers every time, see the commands in
+[`CLAUDE.md`](CLAUDE.md#commands) (`./gradlew test` per module,
 `cd apps/web && npm run dev`).
 
-## Apagar
+## Shutting down
 
 ```powershell
-docker compose down        # conserva los datos (volúmenes)
-docker compose down -v     # arranque en frío — borra volúmenes también
+docker compose down        # keeps the data (volumes)
+docker compose down -v     # cold start — deletes volumes too
 ```
