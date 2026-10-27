@@ -7,10 +7,9 @@
 > [`docs/aws/RUNBOOK.md`](../docs/aws/RUNBOOK.md) — este documento solo referencia sus
 > pasos y define los criterios de verificación (§6).
 >
-> Estado: **no iniciada**. Pendiente de aprobar este spec. **No se ha creado ninguna cuenta
-> AWS ni ejecutado nada contra AWS todavía** — el reloj de 6 meses del Free plan empieza al
-> crear la cuenta (`docs/PROJECT.md` §8), así que la cuenta se crea *después* de aprobar
-> este documento, no antes.
+> Estado: **aprobado, en ejecución** (cuenta creada el <fecha>). Ejecución en curso
+> siguiendo [`docs/aws/RUNBOOK.md`](../docs/aws/RUNBOOK.md) (tareas manuales) y el
+> desglose de §5 (tareas de código).
 > Fase anterior: Fase 0 (completada, ver `specs/phase-0.md`). Fase siguiente: Fase 1
 > (`specs/phase-1.md`, aún no escrita; ver `docs/aws/AWS-PLAN.md` §12).
 >

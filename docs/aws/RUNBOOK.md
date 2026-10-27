@@ -32,7 +32,7 @@ para el crédito. Son **5**, no 4:
 
 - [ ] **2.1 Crear el budget mensual de USD 5 desde el widget** (con alertas 50/80/100 %).
   Esta es, en sí misma, una de las 5 actividades. **No lo crees con Terraform** — créalo
-  aquí a mano y luego impórtalo al estado (`specs/phase-0.5.md` §4.5, tarea 8). El
+  aquí a mano y luego impórtalo al estado (`specs/phase-0.5.md` §4.5, tarea 7). El
   *Zero-spend budget* es independiente de este crédito y **sí** lo crea Terraform
   directamente, sin pasar por el widget.
 - [ ] **2.2 EC2**: lanzar una instancia y terminarla.
@@ -56,7 +56,11 @@ para el crédito. Son **5**, no 4:
   soporte (plan Basic, gratis) en vez de arrancar la creación para "ver si deja".
 - [ ] **3.2** Verificar **acceso a modelos de Bedrock** ("Model access" en la consola de
   Bedrock) para al menos un modelo económico (Claude Haiku / Amazon Nova Micro) — esto sí
-  es seguro de comprobar sin costo, a diferencia de EKS/MSK.
+  es seguro de comprobar sin costo, a diferencia de EKS/MSK. *Si la página "Model access"
+  ya no existe (Bedrock la fue retirando progresivamente): el acceso se habilita solo con
+  la **primera invocación** al modelo, y los modelos de Anthropic en Bedrock pueden pedir
+  rellenar un **formulario de caso de uso** una sola vez antes de responder. Registrar en
+  §3.3 si apareció ese formulario y si quedó resuelto.*
 - [ ] **3.3** Registrar los tres resultados en `specs/phase-0.5.md` §6.
 
 ## 4. Billing preferences y Service Quotas
