@@ -189,13 +189,31 @@ podía funcionar porque el estado nunca salía de la máquina local.
 
 ### 4.3 Qué hace CI y qué no hace
 
-`ci.yml` tiene tres jobs con disparadores distintos:
+**Estado de implementación (actualizado tras el primer `ci.yml` real):** `infra/` todavía
+no existe — la cuenta AWS de esta fase no se ha abierto. Por eso `ci.yml` arrancó con solo
+los dos jobs que ya tienen con qué correr (`build`, `web`); `lint-infra` y `terraform-plan`
+quedan **pendientes explícitamente**, no implementados, hasta que el módulo Terraform
+`bootstrap/` exista. Tampoco se inventa su contenido mientras tanto.
 
-| Job | Dispara en | Qué hace | Credenciales AWS | `id-token` |
-|---|---|---|---|---|
-| `build` | `push`, `pull_request` | `./gradlew build` (Testcontainers Kafka+Postgres reales) + `npm run build` en `apps/web` | Ninguna | `read` (default) |
-| `lint-infra` | `push`, `pull_request` | tflint + checkov sobre `infra/`, **bloqueante** (§4.4) | Ninguna | `read` (default) |
-| `terraform-plan` | `push` a `main` únicamente | Asume `moneypulse-github-plan` vía OIDC; `terraform plan` sobre `infra/terraform/bootstrap` (ya en backend S3, §4.1) | OIDC, sin llaves | `write` (solo este job) |
+**Corrección de diseño:** la versión original de este spec describía `build` como un
+único job que corría `./gradlew build` y luego `npm run build` en `apps/web`,
+secuencialmente. Se cambia a **dos jobs independientes** (`build` y `web`, sin `needs:`
+entre ellos): con un solo job secuencial, si el paso de Gradle falla, el paso de npm nunca
+se ejecuta y su resultado queda indefinido en la pestaña Actions — exactamente lo que un
+CI debe evitar. Dos jobs en paralelo reportan su estado cada uno por separado.
+
+`ci.yml` tiene, hoy, dos jobs implementados y dos pendientes:
+
+| Job | Estado | Dispara en | Qué hace | Credenciales AWS | `id-token` |
+|---|---|---|---|---|---|
+| `build` | **implementado** | `push`, `pull_request` a `main` | `./gradlew build --no-daemon` (Testcontainers Kafka+Postgres reales, los 3 módulos) | Ninguna | `read` (default) |
+| `web` | **implementado** | `push`, `pull_request` a `main` | `npm ci` + `npm run test` + `npm run build` en `apps/web` | Ninguna | `read` (default) |
+| `lint-infra` | **pendiente** | — | tflint + checkov sobre `infra/`, **bloqueante** (§4.4) — se implementa cuando `infra/` exista | Ninguna | `read` (default) |
+| `terraform-plan` | **pendiente** | — | Asume `moneypulse-github-plan` vía OIDC; `terraform plan` sobre `infra/terraform/bootstrap` (ya en backend S3, §4.1) — se implementa junto con `lint-infra` | OIDC, sin llaves | `write` (solo este job) |
+
+Añadido en la implementación real, no previsto en la v1 de este spec:
+`concurrency: { group: ci-${{ github.ref }}, cancel-in-progress: true }` a nivel de
+workflow — una corrida nueva en la misma rama cancela la anterior en curso.
 
 *Trust policy* del rol `moneypulse-github-plan`:
 - `token.actions.githubusercontent.com:aud` = `sts.amazonaws.com` **y**
@@ -273,9 +291,13 @@ de `RUNBOOK.md` (consola, sin commit de código — se marcan con checkbox en es
    policy* de región sobre el rol `moneypulse-admin` (si no quedó ya cubierta en la tarea
    5); `aws_budgets_budget` para el Zero-spend budget (directo); bloque `import` para el
    budget de USD 5 creado a mano (`RUNBOOK.md` §2.1, decisión §4.5).
-8. **`ci: workflow for build, blocking infra lint and OIDC terraform plan`** —
-   `.github/workflows/ci.yml` con los tres jobs de §4.3, `permissions` a nivel de workflow
-   y de job (§3.4), Actions de terceros fijadas por SHA, tflint/checkov bloqueantes.
+8. **`ci: workflow for build, blocking infra lint and OIDC terraform plan`** — **hecha
+   parcialmente**: `.github/workflows/ci.yml` con los jobs `build` y `web` de §4.3,
+   `permissions: contents: read` a nivel de workflow, `concurrency` por rama, Actions de
+   terceros fijadas por SHA exacto con el tag como comentario. Los jobs `lint-infra`
+   (tflint/checkov bloqueantes) y `terraform-plan` (OIDC) quedan **pendientes** — se
+   añaden al mismo archivo cuando `infra/terraform/bootstrap` exista (tareas 3–7 de este
+   mismo desglose), sin reabrir esta tarea como un todo.
 9. **`docs: phase 0.5 runbook results and quota findings`** — marca los checkboxes de
    `docs/aws/RUNBOOK.md` como completados y rellena la tabla de hallazgos de este spec
    (§6), sin exponer secretos, access keys ni el ID de cuenta completo.
@@ -294,9 +316,9 @@ Compuerta ejecutable. La fase está terminada cuando **todos** pasan.
 | V4 | El Zero-spend budget y el budget mensual de USD 5 existen, con alertas, y el segundo está bajo Terraform. | `aws budgets describe-budgets --account-id <id>` muestra ambos con *notification thresholds* 50/80/100 %; `terraform -chdir=infra/terraform/bootstrap plan` tras el `import` de la tarea 7 muestra cero cambios sobre el recurso del budget de USD 5. |
 | V5 | Cost Anomaly Detection y las alertas de Free Tier están activas. | `aws ce get-anomaly-monitors` devuelve ≥1 monitor activo; Billing preferences muestra "Receive Free Tier Usage Alerts" habilitado. |
 | V6 | El estado de Terraform vive **en S3**, no local, y el *locking* nativo funciona. | `terraform -chdir=infra/terraform/bootstrap state list` devuelve los recursos (prueba de que el backend remoto es el real, no uno local); durante un `terraform plan` en curso, `aws s3 ls s3://<bucket>/` muestra un objeto `*.tflock` que desaparece al terminar. |
-| V7 | `terraform plan` corre desde GitHub Actions **sin llaves de acceso de larga vida**. | El job `terraform-plan` de `ci.yml`, en un push a `main`, loguea la asunción del rol vía OIDC y produce un `plan` contra el backend S3 (ya migrado, V6) sin que `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` aparezcan en el repo ni en los secretos del workflow. |
-| V8 | CI corre en cada push y en cada PR. | Un commit a `main` y un PR de prueba disparan `ci.yml`; el job `build` corre Gradle (con Testcontainers) y el build de `apps/web`; ambos en verde en los dos disparadores. |
-| V9 | tflint/checkov **bloquean** el pipeline si hay hallazgos no suprimidos explícitamente. | Introducir deliberadamente un hallazgo (p. ej. un bucket sin cifrado) en una rama de prueba → el job `lint-infra` falla y el workflow queda en rojo; añadir `#checkov:skip=<id>:<motivo>` lo vuelve a poner en verde solo para ese hallazgo puntual. |
+| V7 | `terraform plan` corre desde GitHub Actions **sin llaves de acceso de larga vida**. | **No verificable todavía** — el job `terraform-plan` no existe hasta que `infra/terraform/bootstrap` exista (§4.3). |
+| V8 | CI corre en cada push y en cada PR. | Un commit a `main` y un PR de prueba disparan `ci.yml`; el job `build` corre Gradle (con Testcontainers, los 3 módulos) y el job `web` corre `npm run test` + build de `apps/web`; ambos en verde, de forma independiente, en los dos disparadores. |
+| V9 | tflint/checkov **bloquean** el pipeline si hay hallazgos no suprimidos explícitamente. | **No verificable todavía** — el job `lint-infra` no existe hasta que `infra/` exista (§4.3). |
 | V10 | Todo recurso de Terraform creado lleva las etiquetas obligatorias, incluyendo `ttl=none` en los permanentes. | `aws resourcegroupstaggingapi get-resources --tag-filters Key=project,Values=moneypulse` **y** `aws iam list-role-tags --role-name moneypulse-admin` (y lo mismo para `moneypulse-github-plan`) muestran `project`, `owner`, `env` y `ttl=none`. |
 | V11 | El rol `moneypulse-github-plan` no puede hacer `apply` ni tocar recursos de la lista negra. | `aws iam list-attached-role-policies --role-name moneypulse-github-plan` → `ReadOnlyAccess`; `aws iam get-role-policy --role-name moneypulse-github-plan --policy-name <inline>` → el documento JSON solo permite `s3:PutObject`/`DeleteObject` sobre `arn:aws:s3:::<bucket>/*.tflock`, nada más de escritura. |
 | V12 | Cuotas de entrada quedan registradas. | Este spec (tabla abajo) contiene el valor numérico de la cuota de concurrencia de Lambda y del *throttle* de cuenta de API Gateway. |
