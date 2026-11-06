@@ -1,0 +1,25 @@
+spring:
+  application:
+    name: agent-service
+
+server:
+  port: 8083   # 8080=transaction-api, 8081=kafka-ui, 8082=transaction-processor
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, info
+  endpoint:
+    health:
+      show-details: always      # dev only; Phase 4 locks this down
+      probes:
+        enabled: true
+  tracing:
+    sampling:
+      probability: 1.0          # sample every request in the lab; Phase 5 tunes it
+
+logging:
+  pattern:
+    # Kept explicit on purpose (CLAUDE.md: never remove the traceId/spanId pattern).
+    correlation: "[${spring.application.name:},%X{traceId:-},%X{spanId:-}] "

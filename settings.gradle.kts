@@ -16,4 +16,5 @@ dependencyResolutionManagement {
 include(
     "apps:transaction-api",
     "apps:transaction-processor",
+    "apps:agent-service",
 )

@@ -8,6 +8,7 @@ COPY gradle gradle
 COPY settings.gradle.kts build.gradle.kts ./
 COPY apps/transaction-api/build.gradle.kts apps/transaction-api/build.gradle.kts
 COPY apps/transaction-processor/build.gradle.kts apps/transaction-processor/build.gradle.kts
+COPY apps/agent-service/build.gradle.kts apps/agent-service/build.gradle.kts
 COPY apps/transaction-api/src apps/transaction-api/src
 RUN ./gradlew :apps:transaction-api:bootJar --no-daemon -x test
 
